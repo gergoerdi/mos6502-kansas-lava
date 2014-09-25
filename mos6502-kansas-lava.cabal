@@ -14,7 +14,7 @@ cabal-version:       >=1.10
 
 executable mos6502-kansas-lava
   hs-source-dirs:      src
-  main-is:             Build.hs
+  main-is:             Bench.hs
   build-depends:
         base >=4.7 && < 5,
         kansas-lava >=0.2.4 && < 0.2.5,
@@ -32,7 +32,7 @@ executable mos6502-kansas-lava
         text
   default-language:    Haskell2010
   other-extensions:    ScopedTypeVariables, RecordWildCards, FlexibleInstances, TypeFamilies, NoMonomorphismRestriction
-  Ghc-Options:         -Werror -fwarn-unused-imports -fwarn-unused-matches
+  Ghc-Options:         -fwarn-unused-imports -fwarn-unused-matches
                        -fwarn-unused-binds -fwarn-missing-signatures
 
 source-repository head
