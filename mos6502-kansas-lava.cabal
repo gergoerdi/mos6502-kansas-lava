@@ -1,0 +1,40 @@
+name:                mos6502-kansas-lava
+version:             0.0.0.0
+synopsis:            Implementation of the MOS 6502 microprocessor in Kansas Lava
+-- description:
+license:             GPL-2
+license-file:        LICENSE
+copyright:           (C) 2014 Gergo Erdi
+author:              Gergo Erdi
+maintainer:          Gergo Erdi <gergo@erdi.hu>
+category:            Hardware
+build-type:          Simple
+extra-source-files:  README.md
+cabal-version:       >=1.10
+
+executable mos6502-kansas-lava
+  hs-source-dirs:      src
+  main-is:             Build.hs
+  build-depends:
+        base >=4.7 && < 5,
+        kansas-lava >=0.2.4 && < 0.2.5,
+        netlist-to-vhdl >=0.3 && <0.4,
+        kansas-lava-papilio ==0.0.3,
+        kansas-lava-shake >= 0.1 && < 0.2,
+        sized-types >=0.3,
+        filepath,
+        directory,
+        netlist >=0.3 && <0.4,
+        QuickCheck,
+        bytestring,
+        shake,
+        containers,
+        text
+  default-language:    Haskell2010
+  other-extensions:    ScopedTypeVariables, RecordWildCards, FlexibleInstances, TypeFamilies, NoMonomorphismRestriction
+  Ghc-Options:         -Werror -fwarn-unused-imports -fwarn-unused-matches
+                       -fwarn-unused-binds -fwarn-missing-signatures
+
+source-repository head
+  type:     git
+  location: git://github.com/gergoerdi/mos6502-kansas-lava

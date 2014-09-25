@@ -1,0 +1,4 @@
+dist
+Setup.hs
+cabal.sandbox.config
+ise
