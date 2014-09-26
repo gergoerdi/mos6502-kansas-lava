@@ -5,13 +5,8 @@ module MOS6502.CPU where
 import MOS6502.Types
 
 import Language.KansasLava
-import Language.KansasLava.Signal.Utils
-import Data.Sized.Matrix (Matrix, (!))
-import qualified Data.Sized.Matrix as Matrix
-import Data.Sized.Unsigned as Unsigned
 import Data.Sized.Ix
 import Data.Bits
-import Data.Foldable (forM_)
 
 data CPUIn clk = CPUIn
     { cpuMemR :: Signal clk Byte
