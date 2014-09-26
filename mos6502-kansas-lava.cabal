@@ -18,17 +18,8 @@ executable mos6502-kansas-lava
   build-depends:
         base >=4.7 && < 5,
         kansas-lava >=0.2.4 && < 0.2.5,
-        netlist-to-vhdl >=0.3 && <0.4,
-        kansas-lava-papilio ==0.0.3,
-        kansas-lava-shake >= 0.1 && < 0.2,
         sized-types >=0.3,
-        filepath,
-        directory,
-        netlist >=0.3 && <0.4,
-        QuickCheck,
         bytestring,
-        shake,
-        containers,
         text,
         gtk
   default-language:    Haskell2010
