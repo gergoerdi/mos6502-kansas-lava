@@ -3,6 +3,7 @@
 module MOS6502.CPU where
 
 import MOS6502.Types
+import MOS6502.Utils
 
 import Language.KansasLava
 import Data.Sized.Ix
@@ -68,15 +69,6 @@ data Opcode s clk = Opcode0 (RTL s clk ())
                   | Opcode1 (Signal clk Byte -> (RTL s clk ()))
                   | Opcode2 (Signal clk Addr -> (RTL s clk ()))
                   | Jam
-
-switch :: (Clock clk, Rep a, Eq a, Enum a, Bounded a)
-       => Signal clk a -> (a -> RTL s clk ()) -> RTL s clk ()
-switch sig f =
-    CASE
-      [ IF (sig .==. pureS x) act
-      | x <- [minBound..maxBound]
-      , let act = f x
-      ]
 
 cpu :: forall clk. (Clock clk) => CPUIn clk -> (CPUOut clk, CPUDebug clk)
 cpu CPUIn{..} = runRTL $ do
