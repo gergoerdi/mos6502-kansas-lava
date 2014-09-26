@@ -1,4 +1,4 @@
-module Types (Addr, Byte, ActiveLow) where
+module MOS6502.Types (Addr, Byte, ActiveLow) where
 
 import Data.Sized.Unsigned
 

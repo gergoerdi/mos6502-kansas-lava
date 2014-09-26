@@ -1,8 +1,8 @@
 {-# LANGUAGE ScopedTypeVariables, TypeFamilies #-}
 {-# LANGUAGE RecordWildCards #-}
-module MOS6502 where
+module MOS6502.CPU where
 
-import Types
+import MOS6502.Types
 
 import Language.KansasLava
 import Language.KansasLava.Signal.Utils

@@ -14,7 +14,7 @@ cabal-version:       >=1.10
 
 executable mos6502-kansas-lava
   hs-source-dirs:      src
-  main-is:             Bench.hs
+  main-is:             MOS6502/Bench/Bench.hs
   build-depends:
         base >=4.7 && < 5,
         kansas-lava >=0.2.4 && < 0.2.5,
@@ -29,7 +29,8 @@ executable mos6502-kansas-lava
         bytestring,
         shake,
         containers,
-        text
+        text,
+        gtk
   default-language:    Haskell2010
   other-extensions:    ScopedTypeVariables, RecordWildCards, FlexibleInstances, TypeFamilies, NoMonomorphismRestriction
   Ghc-Options:         -fwarn-unused-imports -fwarn-unused-matches
