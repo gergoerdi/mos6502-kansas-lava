@@ -4,8 +4,8 @@ module MOS6502.Bench where
 
 import MOS6502.Types
 import MOS6502.CPU
-import MOS6502.Bench.Video
--- import Utils (ramWithInit)
+import MOS6502.Bench.Video (FBAddr)
+import MOS6502.Bench.GTK
 
 import Language.KansasLava
 import Data.Bits
@@ -14,9 +14,6 @@ import qualified Data.Sized.Matrix as Matrix
 import Data.List (transpose)
 
 import Data.Maybe (fromMaybe)
-
--- dropInit :: (Rep a) => Seq a -> Seq a
--- dropInit = toS' . drop (fromIntegral (maxBound :: Addr)) . fromS
 
 extractFB :: (Clock clk) => Signal clk (Addr -> Byte) -> [Matrix FBAddr Byte]
 extractFB ram = map (fmap (fromMaybe 0) . Matrix.fromList) . transpose . map (fromS . asyncRead ram . pureS) $ [startAddr..endAddr]

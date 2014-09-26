@@ -1,4 +1,4 @@
-module MOS6502.Bench.Video (FBAddr, mkGUI) where
+module MOS6502.Bench.Video (FBAddr, frameBufferToPixbuf) where
 
 import MOS6502.Types
 
@@ -14,34 +14,17 @@ import Data.Word
 
 type FBAddr = U10
 
-mkGUI :: IO (Matrix FBAddr Byte -> IO ())
-mkGUI = do
-    imageMVar <- newEmptyMVar
-    forkIO $ do
-        Gtk.initGUI
-        window <- Gtk.windowNew
-        image <- Gtk.imageNew
-        putMVar imageMVar image
-        Gtk.set window [ Gtk.windowDefaultWidth Gtk.:= 300
-                       , Gtk.windowDefaultHeight Gtk.:= 300
-                       , Gtk.containerChild Gtk.:= image
-                       , Gtk.containerBorderWidth Gtk.:= 10]
-        Gtk.onDestroy window Gtk.mainQuit
-        Gtk.widgetShowAll window
-        Gtk.mainGUI
-    return $ \mtx -> do
-        image <- readMVar imageMVar
-        Gtk.postGUIAsync $ do
-            pb <- allocaBytes (1024 * 3) $ \ptr -> do
-                forM_ [minBound..maxBound :: FBAddr] $ \i -> do
-                    let (r, g, b) = palette $ fromIntegral $ mtx!i
-                        offset = fromIntegral i * 3
-                    pokeElemOff ptr (offset + 0) (fromIntegral r)
-                    pokeElemOff ptr (offset + 1) (fromIntegral g)
-                    pokeElemOff ptr (offset + 2) (fromIntegral b)
-                Gtk.pixbufNewFromData ptr Gtk.ColorspaceRgb False 8 width height (3 * width)
-            pb' <- Gtk.pixbufScaleSimple pb (width * 8) (height * 8) Gtk.InterpNearest
-            Gtk.imageSetFromPixbuf image pb'
+frameBufferToPixbuf :: Matrix FBAddr Byte -> IO Gtk.Pixbuf
+frameBufferToPixbuf mtx = do
+    pb <- allocaBytes (1024 * 3) $ \ptr -> do
+        forM_ [minBound..maxBound :: FBAddr] $ \i -> do
+            let (r, g, b) = palette $ fromIntegral $ mtx!i
+                offset = fromIntegral i * 3
+            pokeElemOff ptr (offset + 0) (fromIntegral r)
+            pokeElemOff ptr (offset + 1) (fromIntegral g)
+            pokeElemOff ptr (offset + 2) (fromIntegral b)
+        Gtk.pixbufNewFromData ptr Gtk.ColorspaceRgb False 8 width height (3 * width)
+    Gtk.pixbufScaleSimple pb (width * 8) (height * 8) Gtk.InterpNearest
   where
     width = 32
     height = 32
