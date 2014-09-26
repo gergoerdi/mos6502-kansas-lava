@@ -11,9 +11,11 @@ import Language.KansasLava
 import Data.Bits
 import Data.Sized.Matrix (Matrix)
 import qualified Data.Sized.Matrix as Matrix
-import Data.List (transpose)
 
+import Data.List (transpose)
 import Data.Maybe (fromMaybe)
+import qualified Data.ByteString as BS
+import Control.Applicative
 
 extractFB :: (Clock clk) => Signal clk (Addr -> Byte) -> [Matrix FBAddr Byte]
 extractFB ram = map (fmap (fromMaybe 0) . Matrix.fromList) . transpose . map (fromS . asyncRead ram . pureS) $ [startAddr..endAddr]
@@ -23,17 +25,32 @@ extractFB ram = map (fmap (fromMaybe 0) . Matrix.fromList) . transpose . map (fr
 
 demo :: IO ()
 demo = do
+    rom <- programToROM 0xFF00 <$> program
     push <- mkGUI
+    let fb = bench rom
     let step i = do
             print i
             getLine
-            push $ bench !! i
+            push $ fb !! i
     step 0
     step 1
-    mapM_ step [10..20]
+    mapM_ step [10..]
 
-bench :: [Matrix FBAddr Byte]
-bench = extractFB ram
+program :: IO BS.ByteString
+program = BS.readFile "example/FillScreen.obj"
+
+programToROM :: Addr -> BS.ByteString -> (Addr -> Byte)
+programToROM startingAddr bs addr
+  | addr == 0xFFFC = fromIntegral (startingAddr .&. 0xFF)
+  | addr == 0xFFFD = fromIntegral (startingAddr `shiftR` 8)
+  | offset < 0 = 0
+  | offset >= BS.length bs = 0
+  | otherwise = fromIntegral $ BS.index bs offset
+  where
+    offset = fromIntegral $ addr - startingAddr
+
+bench :: (Addr -> Byte) -> [Matrix FBAddr Byte]
+bench romContents = extractFB ram
   where
     (_cpuOut@CPUOut{..}, _cpuDebug) = cpu CPUIn{..}
 
@@ -47,41 +64,9 @@ bench = extractFB ram
     -- (ram, cpuWait) = ramWithInit (+1) (const $ pureS 0) pipe
     ramR = syncRead ram cpuMemA
 
-    -- One page of ROM, to be mapped to 0xFFxx
-    romR = rom (unsigned cpuMemA) (Just . romPage)
-    romPage :: Byte -> Byte
-    romPage addr = case addr of
-        -- LDA #$01
-        0x00 -> 0xa9
-        0x01 -> 0x01
+    romR = rom cpuMemA (Just . romContents)
 
-        -- STA $0200
-        0x02 -> 0x8d
-        0x03 -> 0x00
-        0x04 -> 0x02
-
-        -- LDA #$05
-        0x05 -> 0xa9
-        0x06 -> 0x05
-
-        -- STA $0201
-        0x07 -> 0x8d
-        0x08 -> 0x01
-        0x09 -> 0x02
-
-        -- LDA #$08
-        0x0a -> 0xa9
-        0x0b -> 0x08
-
-        -- STA $0202
-        0x0c -> 0x8d
-        0x0d -> 0x02
-        0x0e -> 0x02
-
-        0xFC -> 0x00
-        0xFD -> 0xff
-        _ -> 0x00
-
+    -- One page of ROM is mapped to 0xFFxx
     isROM = delay $ unsigned (cpuMemA `shiftR` 8) .==. pureS (0xFF :: Byte)
 
     cpuMemR = mux isROM (ramR, romR)
