@@ -64,6 +64,20 @@ instance Rep State where
 
     repType _ = repType (Witness :: Witness StateSize)
 
+data Opcode s clk = Opcode0 (RTL s clk ())
+                  | Opcode1 (Signal clk Byte -> (RTL s clk ()))
+                  | Opcode2 (Signal clk Addr -> (RTL s clk ()))
+                  | Jam
+
+switchByFun :: (Clock clk, Rep a, Eq a, Enum a, Bounded a)
+            => Signal clk a -> (a -> RTL s clk ()) -> RTL s clk ()
+switchByFun sig f =
+    CASE
+      [ IF (sig .==. pureS x) act
+      | x <- [minBound..maxBound]
+      , let act = f x
+      ]
+
 cpu :: forall clk. (Clock clk) => CPUIn clk -> (CPUOut clk, CPUDebug clk)
 cpu CPUIn{..} = runRTL $ do
     -- State
@@ -82,6 +96,37 @@ cpu CPUIn{..} = runRTL $ do
     rNextA <- newReg 0x0000
     rNextW <- newReg Nothing
 
+    let write addr val = do
+            rNextA := addr
+            rNextW := enabledS val
+            s := pureS WaitMem
+
+    let
+        -- LDA
+        op 0xa9 = Opcode1 $ \imm -> do
+            rA := imm
+
+        -- STA
+        op 0x8d = Opcode2 $ \addr -> do
+            write addr (reg rA)
+        op 0x9d = Opcode2 $ \addr -> do
+            let addr' = addr + unsigned (reg rX)
+            write addr' (reg rA)
+
+        -- LDX
+        op 0xa2 = Opcode1 $ \imm -> do
+            rX := imm
+
+        -- INX
+        op 0xe8 = Opcode0 $ do
+            rX := reg rX + 1
+
+        -- JMP
+        op 0x4c = Opcode2 $ \addr -> do
+            rPC := addr
+
+        op _ = Jam
+
     WHEN (bitNot cpuWait) $
       switch (reg s)
       [ Init ==> do
@@ -97,39 +142,39 @@ cpu CPUIn{..} = runRTL $ do
              s := pureS Fetch1
       , Fetch1 ==> do
              rOp := cpuMemR
-             switch cpuMemR
-               [ 0xA9 ==> do -- LDA #xx
-                      rPC := reg rPC + 1
-                      rNextA := var rPC
-                      s := pureS Fetch2
-               , 0x8D ==> do -- STA xxxx
-                      rPC := reg rPC + 1
-                      rNextA := var rPC
-                      s := pureS Fetch2
-               , oTHERWISE $ do
-                      s := pureS Halt
-               ]
+             switchByFun cpuMemR $ \k -> case op k of
+                 Jam -> do
+                     s := pureS Halt
+                 Opcode0 act -> do
+                     act
+                 _ -> do
+                     s := pureS Fetch2
+             rPC := reg rPC + 1
+             rNextA := var rPC
+             s := pureS Fetch1
       , Fetch2 ==> do
-             switch (reg rOp)
-               [ 0xA9 ==> do -- LDA #xx
-                      rA := cpuMemR
-                      rPC := reg rPC + 1
-                      rNextA := var rPC
-                      s := pureS Fetch1
-               , 0x8D ==> do -- STA xxxx
-                      rArgLo := cpuMemR
-                      rPC := reg rPC + 1
-                      rNextA := var rPC
-                      s := pureS Fetch3
-               ]
+             switchByFun (reg rOp) $ \k -> case op k of
+                 Opcode1 act -> do
+                     let arg = cpuMemR
+                     act arg
+                 Opcode2 _ -> do
+                     rArgLo := cpuMemR
+                     s := pureS Fetch3
+                 _ -> do
+                     s := pureS Halt
+             rPC := reg rPC + 1
+             rNextA := var rPC
+             s := pureS Fetch1
       , Fetch3 ==> do
-             switch (reg rOp)
-               [ 0x8D ==> do -- STA xxxx
-                      rNextA := (unsigned cpuMemR `shiftL` 8) .|. unsigned (reg rArgLo)
-                      rNextW := enabledS $ reg rA
-                      rPC := reg rPC + 1
-                      s := pureS WaitMem
-               ]
+             switchByFun (reg rOp) $ \k -> case op k of
+                 Opcode2 act -> do
+                     let arg = (unsigned cpuMemR `shiftL` 8) .|. unsigned (reg rArgLo)
+                     act arg
+                 _ -> do
+                     s := pureS Halt
+             rPC := reg rPC + 1
+             rNextA := var rPC
+             s := pureS Fetch1
       , WaitMem ==> do
              rNextW := disabledS
              rNextA := reg rPC
