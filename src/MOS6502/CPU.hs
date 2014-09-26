@@ -34,7 +34,7 @@ data CPUDebug clk = CPUDebug
     , cpuP :: Signal clk Byte
     , cpuSP :: Signal clk Byte
     , cpuPC :: Signal clk Addr
-    , cpuOp :: Signal clk Byte
+    , cpuOp :: Signal clk Opcode
     }
 
 data State = Init
@@ -65,16 +65,56 @@ instance Rep State where
 
     repType _ = repType (Witness :: Witness StateSize)
 
-data Opcode s clk = Opcode0 (RTL s clk ())
-                  | Opcode1 (Signal clk Byte -> (RTL s clk ()))
-                  | Opcode2 (Signal clk Addr -> (RTL s clk ()))
-                  | Jam
+data Opcode = LDA_Imm
+            | STA_Abs
+            | STA_Abs_X
+            | INX
+            | LDX_Imm
+            | JMP_Abs
+            | BRK
+            deriving (Eq, Bounded, Enum)
+
+instance Rep Opcode where
+    type W Opcode = X8
+    newtype X Opcode = XOpcode{ unXOpcode :: Maybe Opcode }
+
+    unX = unXOpcode
+    optX = XOpcode
+
+    toRep = toRep . optX . fmap encode . unX
+      where
+        encode :: Opcode -> Byte
+        encode LDA_Imm = 0xA9
+        encode STA_Abs = 0x8D
+        encode STA_Abs_X = 0x9D
+        encode INX = 0xE8
+        encode LDX_Imm = 0xA2
+        encode JMP_Abs = 0x4C
+        encode BRK = 0x00
+
+    fromRep = optX . fmap decode . unX . sizedFromRepToIntegral
+      where
+        decode :: Byte -> Opcode
+        decode 0xA9 = LDA_Imm
+        decode 0x8D = STA_Abs
+        decode 0x9D = STA_Abs_X
+        decode 0xE8 = INX
+        decode 0xA2 = LDX_Imm
+        decode 0x4C = JMP_Abs
+        decode _ = BRK
+
+    repType _ = repType (Witness :: Witness Byte)
+
+data Microcode s clk = Opcode0 (RTL s clk ())
+                     | Opcode1 (Signal clk Byte -> (RTL s clk ()))
+                     | Opcode2 (Signal clk Addr -> (RTL s clk ()))
+                     | Jam
 
 cpu :: forall clk. (Clock clk) => CPUIn clk -> (CPUOut clk, CPUDebug clk)
 cpu CPUIn{..} = runRTL $ do
     -- State
     s <- newReg Init
-    rOp <- newReg 0x00
+    rOp <- newReg BRK
     rArgLo <- newReg 0x00
 
     -- Registers
@@ -93,28 +133,18 @@ cpu CPUIn{..} = runRTL $ do
             rNextW := enabledS val
             s := pureS WaitMem
 
-    let
-        -- LDA
-        op 0xa9 = Opcode1 $ \imm -> do
+    let op LDA_Imm = Opcode1 $ \imm -> do
             rA := imm
-
-        -- STA
-        op 0x8d = Opcode2 $ \addr -> do
+        op STA_Abs = Opcode2 $ \addr -> do
             write addr (reg rA)
-        op 0x9d = Opcode2 $ \addr -> do
+        op STA_Abs_X = Opcode2 $ \addr -> do
             let addr' = addr + unsigned (reg rX)
             write addr' (reg rA)
-
-        -- LDX
-        op 0xa2 = Opcode1 $ \imm -> do
+        op LDX_Imm = Opcode1 $ \imm -> do
             rX := imm
-
-        -- INX
-        op 0xe8 = Opcode0 $ do
+        op INX = Opcode0 $ do
             rX := reg rX + 1
-
-        -- JMP
-        op 0x4c = Opcode2 $ \addr -> do
+        op JMP_Abs = Opcode2 $ \addr -> do
             rPC := addr
 
         op _ = Jam
@@ -133,8 +163,8 @@ cpu CPUIn{..} = runRTL $ do
               rNextA := var rPC
               s := pureS Fetch1
           Fetch1 -> do
-              rOp := cpuMemR
-              switch cpuMemR $ \k -> case op k of
+              rOp := bitwise cpuMemR
+              switch (var rOp) $ \k -> case op k of
                   Jam -> do
                       s := pureS Halt
                   Opcode0 act -> do
