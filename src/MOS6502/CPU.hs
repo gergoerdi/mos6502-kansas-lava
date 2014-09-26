@@ -2,12 +2,16 @@
 {-# LANGUAGE RecordWildCards #-}
 module MOS6502.CPU where
 
+import MOS6502.Opcodes
 import MOS6502.Types
 import MOS6502.Utils
 
 import Language.KansasLava
 import Data.Sized.Ix
 import Data.Bits
+
+import Data.Bimap (Bimap)
+import qualified Data.Bimap as Bimap
 
 data CPUIn clk = CPUIn
     { cpuMemR :: Signal clk Byte
@@ -65,46 +69,6 @@ instance Rep State where
 
     repType _ = repType (Witness :: Witness StateSize)
 
-data Opcode = LDA_Imm
-            | STA_Abs
-            | STA_Abs_X
-            | INX
-            | LDX_Imm
-            | JMP_Abs
-            | BRK
-            deriving (Eq, Bounded, Enum)
-
-instance Rep Opcode where
-    type W Opcode = X8
-    newtype X Opcode = XOpcode{ unXOpcode :: Maybe Opcode }
-
-    unX = unXOpcode
-    optX = XOpcode
-
-    toRep = toRep . optX . fmap encode . unX
-      where
-        encode :: Opcode -> Byte
-        encode LDA_Imm = 0xA9
-        encode STA_Abs = 0x8D
-        encode STA_Abs_X = 0x9D
-        encode INX = 0xE8
-        encode LDX_Imm = 0xA2
-        encode JMP_Abs = 0x4C
-        encode BRK = 0x00
-
-    fromRep = optX . fmap decode . unX . sizedFromRepToIntegral
-      where
-        decode :: Byte -> Opcode
-        decode 0xA9 = LDA_Imm
-        decode 0x8D = STA_Abs
-        decode 0x9D = STA_Abs_X
-        decode 0xE8 = INX
-        decode 0xA2 = LDX_Imm
-        decode 0x4C = JMP_Abs
-        decode _ = BRK
-
-    repType _ = repType (Witness :: Witness Byte)
-
 data Microcode s clk = Opcode0 (RTL s clk ())
                      | Opcode1 (Signal clk Byte -> (RTL s clk ()))
                      | Opcode2 (Signal clk Addr -> (RTL s clk ()))
@@ -132,6 +96,7 @@ cpu CPUIn{..} = runRTL $ do
             rNextA := addr
             rNextW := enabledS val
             s := pureS WaitMem
+        delay1 = return () -- TODO
 
     let op LDA_Imm = Opcode1 $ \imm -> do
             rA := imm
@@ -140,10 +105,18 @@ cpu CPUIn{..} = runRTL $ do
         op STA_Abs_X = Opcode2 $ \addr -> do
             let addr' = addr + unsigned (reg rX)
             write addr' (reg rA)
+            delay1
         op LDX_Imm = Opcode1 $ \imm -> do
             rX := imm
         op INX = Opcode0 $ do
             rX := reg rX + 1
+            delay1
+        op TAX = Opcode0 $ do
+            rX := reg rA
+            delay1
+        op TXA = Opcode0 $ do
+            rX := reg rA
+            delay1
         op JMP_Abs = Opcode2 $ \addr -> do
             rPC := addr
 

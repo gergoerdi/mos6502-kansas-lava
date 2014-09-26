@@ -20,7 +20,7 @@ executable mos6502-kansas-lava
         kansas-lava >=0.2.4 && < 0.2.5,
         sized-types >=0.3,
         bytestring,
-        text,
+        bimap,
         gtk
   default-language:    Haskell2010
   other-extensions:    ScopedTypeVariables, RecordWildCards, FlexibleInstances, TypeFamilies, NoMonomorphismRestriction
