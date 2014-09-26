@@ -69,9 +69,9 @@ data Opcode s clk = Opcode0 (RTL s clk ())
                   | Opcode2 (Signal clk Addr -> (RTL s clk ()))
                   | Jam
 
-switchByFun :: (Clock clk, Rep a, Eq a, Enum a, Bounded a)
-            => Signal clk a -> (a -> RTL s clk ()) -> RTL s clk ()
-switchByFun sig f =
+switch :: (Clock clk, Rep a, Eq a, Enum a, Bounded a)
+       => Signal clk a -> (a -> RTL s clk ()) -> RTL s clk ()
+switch sig f =
     CASE
       [ IF (sig .==. pureS x) act
       | x <- [minBound..maxBound]
@@ -128,58 +128,59 @@ cpu CPUIn{..} = runRTL $ do
         op _ = Jam
 
     WHEN (bitNot cpuWait) $
-      switch (reg s)
-      [ Init ==> do
-             rNextA := pureS resetVector
-             s := pureS FetchVector1
-      , FetchVector1 ==> do
-             rPC := unsigned cpuMemR
-             rNextA := reg rNextA + 1
-             s := pureS FetchVector2
-      , FetchVector2 ==> do
-             rPC := (reg rPC .&. 0xFF) .|. (unsigned cpuMemR `shiftL` 8)
-             rNextA := var rPC
-             s := pureS Fetch1
-      , Fetch1 ==> do
-             rOp := cpuMemR
-             switchByFun cpuMemR $ \k -> case op k of
-                 Jam -> do
-                     s := pureS Halt
-                 Opcode0 act -> do
-                     act
-                 _ -> do
-                     s := pureS Fetch2
-             rPC := reg rPC + 1
-             rNextA := var rPC
-             s := pureS Fetch1
-      , Fetch2 ==> do
-             switchByFun (reg rOp) $ \k -> case op k of
-                 Opcode1 act -> do
-                     let arg = cpuMemR
-                     act arg
-                 Opcode2 _ -> do
-                     rArgLo := cpuMemR
-                     s := pureS Fetch3
-                 _ -> do
-                     s := pureS Halt
-             rPC := reg rPC + 1
-             rNextA := var rPC
-             s := pureS Fetch1
-      , Fetch3 ==> do
-             switchByFun (reg rOp) $ \k -> case op k of
-                 Opcode2 act -> do
-                     let arg = (unsigned cpuMemR `shiftL` 8) .|. unsigned (reg rArgLo)
-                     act arg
-                 _ -> do
-                     s := pureS Halt
-             rPC := reg rPC + 1
-             rNextA := var rPC
-             s := pureS Fetch1
-      , WaitMem ==> do
-             rNextW := disabledS
-             rNextA := reg rPC
-             s := pureS Fetch1
-      ]
+      switch (reg s) $ \state -> case state of
+          Init -> do
+              rNextA := pureS resetVector
+              s := pureS FetchVector1
+          FetchVector1 -> do
+              rPC := unsigned cpuMemR
+              rNextA := reg rNextA + 1
+              s := pureS FetchVector2
+          FetchVector2 -> do
+              rPC := (reg rPC .&. 0xFF) .|. (unsigned cpuMemR `shiftL` 8)
+              rNextA := var rPC
+              s := pureS Fetch1
+          Fetch1 -> do
+              rOp := cpuMemR
+              switch cpuMemR $ \k -> case op k of
+                  Jam -> do
+                      s := pureS Halt
+                  Opcode0 act -> do
+                      act
+                  _ -> do
+                      s := pureS Fetch2
+              rPC := reg rPC + 1
+              rNextA := var rPC
+              s := pureS Fetch1
+          Fetch2 -> do
+              switch (reg rOp) $ \k -> case op k of
+                  Opcode1 act -> do
+                      let arg = cpuMemR
+                      act arg
+                  Opcode2 _ -> do
+                      rArgLo := cpuMemR
+                      s := pureS Fetch3
+                  _ -> do
+                      s := pureS Halt
+              rPC := reg rPC + 1
+              rNextA := var rPC
+              s := pureS Fetch1
+          Fetch3 -> do
+              switch (reg rOp) $ \k -> case op k of
+                  Opcode2 act -> do
+                      let arg = (unsigned cpuMemR `shiftL` 8) .|. unsigned (reg rArgLo)
+                      act arg
+                  _ -> do
+                      s := pureS Halt
+              rPC := reg rPC + 1
+              rNextA := var rPC
+              s := pureS Fetch1
+          WaitMem -> do
+              rNextW := disabledS
+              rNextA := reg rPC
+              s := pureS Fetch1
+          _ -> do
+              s := pureS Halt
 
     let cpuMemA = var rNextA
         cpuMemW = var rNextW
@@ -205,14 +206,3 @@ nmiVector = 0xFFFA
 
 irqVector :: Addr
 irqVector = 0xFFFE
-
-switch :: (Eq a, Rep a, sig ~ Signal c) => sig a -> [(Maybe a, RTL s c ())] -> RTL s c ()
-switch r = CASE . map (uncurry $ maybe OTHERWISE toIF)
-  where
-    toIF x rtl = IF (r .==. pureS x) rtl
-
-(==>) :: (Eq a, Rep a) => a -> RTL s c () -> (Maybe a, RTL s c ())
-x ==> rtl = (Just x, rtl)
-
-oTHERWISE :: (Eq a, Rep a) => RTL s c () -> (Maybe a, RTL s c ())
-oTHERWISE rtl = (Nothing, rtl)
