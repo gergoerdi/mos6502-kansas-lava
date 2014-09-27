@@ -150,15 +150,29 @@ cpu CPUIn{..} = runRTL $ do
 
         op LDX_Imm = Opcode1 $ \imm -> do
             rX := imm
+        op LDX_ZP = OnZP id $ ReadDirect $ \v -> do
+            rX := v
+
+        op STX_ZP = Opcode1 $ \zp -> do
+            write (unsigned zp) (reg rA)
 
         op INX = Opcode0 $ do
             rX := reg rX + 1
+            delay1
+        op INY = Opcode0 $ do
+            rY := reg rY + 1
             delay1
         op TAX = Opcode0 $ do
             rX := reg rA
             delay1
         op TXA = Opcode0 $ do
-            rX := reg rA
+            rA := reg rX
+            delay1
+        op TAY = Opcode0 $ do
+            rY := reg rA
+            delay1
+        op TYA = Opcode0 $ do
+            rA := reg rY
             delay1
 
         op CMP_Imm = Opcode1 $ \imm -> do
@@ -170,7 +184,17 @@ cpu CPUIn{..} = runRTL $ do
             let v' = v + 1
             fZ := v' .==. 0
             fN := v' .>=. 0x80
-            return $ v + 1
+            return v'
+
+        op DEC_ZP = OnZP id $ ModifyDirect $ \v -> do
+            let v' = v - 1
+            fZ := v' .==. 0
+            fN := v' .>=. 0x80
+            return v'
+
+        op ASL_A = Opcode0 $ do
+            rA := reg rA `shiftL` 1
+            fC := reg rA .>=. 0x80
 
         op JMP_Abs = Opcode2 $ \addr -> do
             rPC := addr
