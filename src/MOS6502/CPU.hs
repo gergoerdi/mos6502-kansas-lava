@@ -73,16 +73,13 @@ instance Rep State where
 
 data Indirect s clk = ReadIndirect (Signal clk Byte -> RTL s clk ())
                     | WriteIndirect (RTL s clk (Signal clk Byte))
-
-newtype Modify s clk = Modify (Signal clk Byte -> RTL s clk (Signal clk Byte))
+                    | ModifyDirect (Signal clk Byte -> RTL s clk (Signal clk Byte))
+                    | ReadDirect (Signal clk Byte -> RTL s clk ())
 
 data Microcode s clk = Opcode0 (RTL s clk ())
                      | Opcode1 (Signal clk Byte -> RTL s clk ())
                      | Opcode2 (Signal clk Addr -> RTL s clk ())
-                     | DirectZP (Signal clk Byte -> Signal clk Byte) (Signal clk Byte -> RTL s clk ())
-                     | IndirectZP (Signal clk Byte -> Signal clk Byte) (Indirect s clk)
-                     | ModifyZP (Signal clk Byte -> Signal clk Byte) (Modify s clk)
-                     -- | IndirectAddr (Signal clk Addr -> Signal clk Addr) (Signal clk Byte -> RTL s clk ())
+                     | OnZP (Signal clk Byte -> Signal clk Byte) (Indirect s clk)
                      | Jam
 
 bitsToByte :: (Clock clk)
@@ -133,9 +130,9 @@ cpu CPUIn{..} = runRTL $ do
 
     let op LDA_Imm = Opcode1 $ \imm -> do
             setA imm
-        op LDA_ZP = DirectZP id $ \v -> do
+        op LDA_ZP = OnZP id $ ReadDirect $ \v -> do
             setA v
-        op LDA_Ind_X = IndirectZP (+ reg rX) $ ReadIndirect $ \v -> do
+        op LDA_Ind_X = OnZP (+ reg rX) $ ReadIndirect $ \v -> do
             setA v
 
         op STA_Abs = Opcode2 $ \addr -> do
@@ -148,7 +145,7 @@ cpu CPUIn{..} = runRTL $ do
             let addr' = addr + unsigned (reg rX)
             write addr' (reg rA)
             delay1
-        op STA_Ind_X = IndirectZP (+ reg rX) $ WriteIndirect $ do
+        op STA_Ind_X = OnZP (+ reg rX) $ WriteIndirect $ do
             return $ reg rA
 
         op LDX_Imm = Opcode1 $ \imm -> do
@@ -169,7 +166,7 @@ cpu CPUIn{..} = runRTL $ do
             fZ := reg rA .==. imm
             fN := reg rA .>=. 0x80
 
-        op INC_ZP = ModifyZP id $ Modify $ \v -> do
+        op INC_ZP = OnZP id $ ModifyDirect $ \v -> do
             let v' = v + 1
             fZ := v' .==. 0
             fN := v' .>=. 0x80
@@ -216,13 +213,7 @@ cpu CPUIn{..} = runRTL $ do
               switch (reg rOp) $ \k -> case op k of
                   Opcode1 act -> do
                       act cpuMemR
-                  DirectZP toZP _ -> do
-                      rNextA := unsigned $ toZP cpuMemR
-                      s := pureS Indirect1
-                  IndirectZP toZP _ -> do
-                      rNextA := unsigned $ toZP cpuMemR
-                      s := pureS Indirect1
-                  ModifyZP toZP _ -> do
+                  OnZP toZP _ -> do
                       rNextA := unsigned $ toZP cpuMemR
                       s := pureS Indirect1
                   Opcode2 _ -> do
@@ -244,26 +235,26 @@ cpu CPUIn{..} = runRTL $ do
               s := pureS Fetch1
           Indirect1 -> do
               switch (reg rOp) $ \k -> case op k of
-                  DirectZP _ act -> do
+                  OnZP _ (ReadDirect act) -> do
                       act cpuMemR
                       rNextA := reg rPC
                       s := pureS Fetch1
-                  IndirectZP{} -> do
+                  OnZP _ (ModifyDirect act) -> do
+                      v <- act cpuMemR
+                      rNextW := enabledS v
+                      s := pureS WaitWrite
+                  OnZP _ _ -> do
                       rArgLo := cpuMemR
                       rNextA := reg rNextA + 1
                       s := pureS Indirect2
-                  ModifyZP _ (Modify modify) -> do
-                      v <- modify cpuMemR
-                      rNextW := enabledS v
-                      s := pureS WaitWrite
                   _ -> return ()
               s := pureS Halt
           Indirect2 -> do
               switch (reg rOp) $ \k -> case op k of
-                  IndirectZP _ (ReadIndirect _) -> do
+                  OnZP _ (ReadIndirect _) -> do
                       rNextA := argAddr
                       s := pureS WaitRead
-                  IndirectZP _ (WriteIndirect act) -> do
+                  OnZP _ (WriteIndirect act) -> do
                       rNextA := argAddr
                       v <- act
                       rNextW := enabledS v
@@ -272,7 +263,7 @@ cpu CPUIn{..} = runRTL $ do
                       s := pureS Halt
           WaitRead -> do
               switch (reg rOp) $ \k -> case op k of
-                  IndirectZP _ (ReadIndirect act) -> do
+                  OnZP _ (ReadIndirect act) -> do
                       act cpuMemR
                       rNextA := reg rPC
                       s := pureS Fetch1
