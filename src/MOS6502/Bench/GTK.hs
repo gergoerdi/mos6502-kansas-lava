@@ -3,12 +3,13 @@ module MOS6502.Bench.GTK (mkGUI) where
 import MOS6502.Types
 import MOS6502.Bench.Video
 
+import Data.Sized.Unsigned (U4)
 import Data.Sized.Matrix (Matrix)
 
 import qualified Graphics.UI.Gtk as Gtk
 import Control.Concurrent
 
-mkGUI :: IO (Matrix FBAddr Byte -> IO ())
+mkGUI :: IO (Matrix FBAddr U4 -> IO ())
 mkGUI = do
     imageMVar <- newEmptyMVar
     forkIO $ do

@@ -13,11 +13,11 @@ import Data.Word
 
 type FBAddr = U10
 
-frameBufferToPixbuf :: Matrix FBAddr Byte -> IO Gtk.Pixbuf
+frameBufferToPixbuf :: Matrix FBAddr U4 -> IO Gtk.Pixbuf
 frameBufferToPixbuf mtx = do
     pb <- allocaBytes (1024 * 3) $ \ptr -> do
         forM_ [minBound..maxBound :: FBAddr] $ \i -> do
-            let (r, g, b) = palette $ fromIntegral $ mtx!i
+            let (r, g, b) = palette $ mtx!i
                 offset = fromIntegral i * 3
             pokeElemOff ptr (offset + 0) (fromIntegral r)
             pokeElemOff ptr (offset + 1) (fromIntegral g)

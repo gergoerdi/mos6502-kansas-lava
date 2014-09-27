@@ -11,7 +11,8 @@ import MOS6502.Bench.GTK
 import Language.KansasLava
 import Language.KansasLava.Signal (shallowMapS)
 import Data.Bits
-import Data.Sized.Matrix (Matrix)
+import Data.Sized.Unsigned
+import Data.Sized.Matrix (Matrix, Size)
 import qualified Data.Sized.Matrix as Matrix
 
 import Data.List (transpose)
@@ -19,11 +20,8 @@ import Data.Maybe (fromMaybe)
 import qualified Data.ByteString as BS
 import Control.Applicative
 
-extractFB :: (Clock clk) => Signal clk (Addr -> Byte) -> [Matrix FBAddr Byte]
-extractFB ram = map (fmap (fromMaybe 0) . Matrix.fromList) . transpose . map (fromS . asyncRead ram . pureS) $ [startAddr..endAddr]
-  where
-    startAddr = 0x200
-    endAddr = startAddr + fromIntegral (maxBound :: FBAddr)
+memToMatrix :: (Clock clk, Rep a, Size a, Rep d) => Signal clk (a -> d) -> [Matrix a (Maybe d)]
+memToMatrix ram = map Matrix.fromList . transpose . map (fromS . asyncRead ram . pureS) $ Matrix.all
 
 {-
 main :: IO ()
@@ -34,6 +32,7 @@ main = do
     forever yield
 -}
 
+{-
 demo :: IO ()
 demo = do
     fb <- demo'
@@ -45,8 +44,9 @@ demo = do
     step 0
     step 1
     mapM_ step [10..]
+-}
 
-demo' :: IO [Matrix FBAddr Byte]
+demo' :: IO [Matrix FBAddr U4]
 demo' = bench . programToROM 0xF000 <$> program
 
 program :: IO BS.ByteString
@@ -67,8 +67,8 @@ programToROM startingAddr bs addr
 forceDefined :: (Clock clk, Rep a) => a -> Signal clk a -> Signal clk a
 forceDefined def = shallowMapS (fmap (optX . (<|> Just def) . unX))
 
-bench :: (Addr -> Byte) -> [Matrix FBAddr Byte]
-bench romContents = extractFB ram
+bench :: (Addr -> Byte) -> [Matrix FBAddr U4]
+bench romContents = map (fmap $ fromMaybe 0) $ memToMatrix vram
 -- bench romContents = pack (cpuOp _cpuDebug, cpuState _cpuDebug, cpuPC _cpuDebug) :: Signal CLK (Opcode, State, Addr)
   where
     (_cpuOut@CPUOut{..}, _cpuDebug) = cpu CPUIn{..}
@@ -77,12 +77,21 @@ bench romContents = extractFB ram
     cpuIRQ = high
     cpuNMI = high
 
-    pipe = packEnabled (isEnabled cpuMemW) (pack (cpuMemA, enabledVal cpuMemW))
+    pipe :: Signal CLK (Pipe Addr Byte)
+    pipe = packEnabled (isEnabled cpuMemW) $
+           pack (cpuMemA, enabledVal cpuMemW)
     ram = writeMemory pipe
     cpuWait = low
     -- (ram, cpuWait) = ramWithInit (+1) (const $ pureS 0) pipe
     ramR = syncRead ram cpuMemA
     ramR' = forceDefined 0 ramR
+
+    isVideo = 0x0200 .<=. cpuMemA .&&. cpuMemA .<. 0x0400
+
+    vpipe :: Signal CLK (Pipe FBAddr U4)
+    vpipe = packEnabled (isEnabled cpuMemW .&&. isVideo) $
+            pack (unsigned (cpuMemA - 0x0200), unsigned $ enabledVal cpuMemW)
+    vram = writeMemory vpipe
 
     romR = rom cpuMemA (Just . romContents)
 
