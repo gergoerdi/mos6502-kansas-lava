@@ -1,7 +1,5 @@
 module MOS6502.Bench.Video (FBAddr, frameBufferToPixbuf) where
 
-import MOS6502.Types
-
 import Data.Sized.Unsigned
 import Data.Sized.Matrix (Matrix, (!))
 

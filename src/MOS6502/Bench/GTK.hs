@@ -1,6 +1,5 @@
 module MOS6502.Bench.GTK (mkGUI) where
 
-import MOS6502.Types
 import MOS6502.Bench.Video
 
 import Data.Sized.Unsigned (U4)

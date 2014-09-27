@@ -32,7 +32,6 @@ main = do
     forever yield
 -}
 
-{-
 demo :: IO ()
 demo = do
     fb <- demo'
@@ -44,7 +43,6 @@ demo = do
     step 0
     step 1
     mapM_ step [10..]
--}
 
 demo' :: IO [Matrix FBAddr U4]
 demo' = bench . programToROM 0xF000 <$> program
