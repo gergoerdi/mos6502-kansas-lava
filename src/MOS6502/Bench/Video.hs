@@ -6,7 +6,6 @@ import Data.Sized.Unsigned
 import Data.Sized.Matrix (Matrix, (!))
 
 import qualified Graphics.UI.Gtk as Gtk
-import Control.Concurrent
 import Foreign.Storable
 import Foreign.Marshal.Alloc
 import Control.Monad (forM_)

@@ -3,15 +3,10 @@ module MOS6502.Bench.GTK (mkGUI) where
 import MOS6502.Types
 import MOS6502.Bench.Video
 
-import Data.Sized.Unsigned
-import Data.Sized.Matrix (Matrix, (!))
+import Data.Sized.Matrix (Matrix)
 
 import qualified Graphics.UI.Gtk as Gtk
 import Control.Concurrent
-import Foreign.Storable
-import Foreign.Marshal.Alloc
-import Control.Monad (forM_)
-import Data.Word
 
 mkGUI :: IO (Matrix FBAddr Byte -> IO ())
 mkGUI = do

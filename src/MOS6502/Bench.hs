@@ -4,7 +4,7 @@ module MOS6502.Bench where
 
 import MOS6502.Types
 import MOS6502.CPU
-import MOS6502.Opcodes
+-- import MOS6502.Opcodes
 import MOS6502.Bench.Video (FBAddr)
 import MOS6502.Bench.GTK
 
@@ -18,7 +18,6 @@ import Data.List (transpose)
 import Data.Maybe (fromMaybe)
 import qualified Data.ByteString as BS
 import Control.Applicative
-import Control.Monad
 
 extractFB :: (Clock clk) => Signal clk (Addr -> Byte) -> [Matrix FBAddr Byte]
 extractFB ram = map (fmap (fromMaybe 0) . Matrix.fromList) . transpose . map (fromS . asyncRead ram . pureS) $ [startAddr..endAddr]
@@ -35,7 +34,6 @@ main = do
     forever yield
 -}
 
-{-
 demo :: IO ()
 demo = do
     fb <- demo'
@@ -47,8 +45,8 @@ demo = do
     step 0
     step 1
     mapM_ step [10..]
--}
 
+demo' :: IO [Matrix FBAddr Byte]
 demo' = bench . programToROM 0xF000 <$> program
 
 program :: IO BS.ByteString
