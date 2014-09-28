@@ -81,6 +81,7 @@ data Microcode s clk = Opcode0 (RTL s clk ())
                      | Opcode1 (Signal clk Byte -> RTL s clk ())
                      | Opcode2 (Signal clk Addr -> RTL s clk ())
                      | OnZP (Signal clk Byte -> Signal clk Byte) (Indirect s clk)
+                     | OnAddr (Signal clk Addr -> Signal clk Addr) (Indirect s clk)
                      | Jam
 
 bitsToByte :: (Clock clk)
@@ -169,6 +170,9 @@ cpu CPUIn{..} = runRTL $ do
             rX := imm
         op LDX_ZP = OnZP id $ ReadDirect $ \v -> do
             rX := v
+
+        op LDY_Abs_X = OnAddr (+ unsigned (reg rX)) $ ReadDirect $ \v -> do
+            rY := v
 
         op STX_ZP = Opcode1 $ \zp -> do
             write (unsigned zp) (reg rA)
@@ -271,6 +275,9 @@ cpu CPUIn{..} = runRTL $ do
                   Opcode2 _ -> do
                       rArgLo := cpuMemR
                       s := pureS Fetch3
+                  OnAddr{} -> do
+                      rArgLo := cpuMemR
+                      s := pureS Fetch3
                   _ -> do
                       s := pureS Halt
               rPC := reg rPC + 1
@@ -280,6 +287,9 @@ cpu CPUIn{..} = runRTL $ do
               switch (reg rOp) $ \k -> case op k of
                   Opcode2 act -> do
                       act argAddr
+                  OnAddr toAddr _ -> do
+                      rNextA := toAddr argAddr
+                      s := pureS Indirect1
                   _ -> do
                       s := pureS Halt
               rPC := reg rPC + 1
