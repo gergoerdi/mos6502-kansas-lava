@@ -8,6 +8,7 @@ import MOS6502.Utils
 
 import Language.KansasLava
 import Data.Sized.Ix
+import Data.Sized.Unsigned
 import Data.Sized.Matrix
 import qualified Data.Sized.Matrix as Matrix
 import Data.Bits
@@ -86,6 +87,22 @@ bitsToByte :: (Clock clk)
            => Matrix X8 (Signal clk Bool)
            -> Signal clk Byte
 bitsToByte = bitwise . packMatrix
+
+addExtend :: (Clock clk)
+          => Signal clk Bool
+          -> Signal clk Byte
+          -> Signal clk Byte
+          -> Signal clk U9
+addExtend c x y = unsigned x + unsigned y + unsigned c
+
+addCarry :: (Clock clk)
+         => Signal clk Bool
+         -> Signal clk Byte
+         -> Signal clk Byte
+         -> (Signal clk Bool, Signal clk Byte)
+addCarry c x y = (testABit z 8, unsigned z)
+  where
+    z = addExtend c x y
 
 cpu :: (Clock clk) => CPUIn clk -> (CPUOut clk, CPUDebug clk)
 cpu CPUIn{..} = runRTL $ do
@@ -191,6 +208,17 @@ cpu CPUIn{..} = runRTL $ do
             fZ := v' .==. 0
             fN := v' .>=. 0x80
             return v'
+
+        op CLC = Opcode0 $ do
+            fC := low
+
+        op ADC_ZP = OnZP id $ ReadDirect $ \v -> do
+            let (c', v') = addCarry (reg fC) (reg rA) v
+            fC := c'
+            fZ := v' .==. 0
+            -- fV := undefined -- TODO
+            fN := v' .>=. 0x80
+            rA := v'
 
         op ASL_A = Opcode0 $ do
             rA := reg rA `shiftL` 1
