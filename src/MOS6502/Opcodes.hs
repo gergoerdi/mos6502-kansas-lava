@@ -44,6 +44,8 @@ data Opcode = LDA_Imm
             | ADC_ZP
             | ASL_A
             | CMP_Imm
+            | CPX_Imm
+            | CPY_Imm
             | BRK
             deriving (Eq, Ord, Bounded, Enum)
 
@@ -82,6 +84,8 @@ opcodes = Bimap.fromList
           , (ADC_ZP,    0x65)
           , (ASL_A,     0x0A)
           , (CMP_Imm,   0xC9)
+          , (CPX_Imm,   0xE0)
+          , (CPY_Imm,   0xC0)
           , (BRK,       0x00)
           ]
 

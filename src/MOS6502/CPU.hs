@@ -139,6 +139,10 @@ cpu CPUIn{..} = runRTL $ do
             rA := v
             fZ := v .==. 0
             fN := v .>=. 0x80
+        cmp r imm = do
+            fC := reg r .>=. imm
+            fZ := reg r .==. imm
+            fN := reg r .>=. 0x80
 
     let write addr val = do
             rNextA := addr
@@ -200,10 +204,9 @@ cpu CPUIn{..} = runRTL $ do
             setA $ reg rY
             delay1
 
-        op CMP_Imm = Opcode1 $ \imm -> do
-            fC := reg rA .>=. imm
-            fZ := reg rA .==. imm
-            fN := reg rA .>=. 0x80
+        op CMP_Imm = Opcode1 $ cmp rA
+        op CPX_Imm = Opcode1 $ cmp rX
+        op CPY_Imm = Opcode1 $ cmp rY
 
         op INC_ZP = OnZP id $ ModifyDirect $ \v -> do
             let v' = v + 1
