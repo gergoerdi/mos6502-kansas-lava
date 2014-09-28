@@ -94,6 +94,6 @@ bench romContents = map (fmap $ fromMaybe 0) $ memToMatrix vram
     romR = rom cpuMemA (Just . romContents)
 
     -- One page of ROM is mapped to 0xFFxx
-    isROM = delay $ unsigned (cpuMemA `shiftR` 8) .>=. pureS (0xF0 :: Byte)
+    isROM = delay $ cpuMemA .>=. 0xF000
 
     cpuMemR = mux isROM (ramR', romR)
