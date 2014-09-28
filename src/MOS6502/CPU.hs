@@ -152,6 +152,8 @@ cpu CPUIn{..} = runRTL $ do
             setA v
         op LDA_Ind_X = OnZP (+ reg rX) $ ReadIndirect $ \v -> do
             setA v
+        op LDA_Abs_X = OnAddr (+ unsigned (reg rX)) $ ReadDirect $ \v -> do
+            setA v
 
         op STA_Abs = Opcode2 $ \addr -> do
             write addr (reg rA)
@@ -218,6 +220,11 @@ cpu CPUIn{..} = runRTL $ do
         op CLC = Opcode0 $ do
             fC := low
 
+        op ADC_Imm = Opcode1 $ \v -> do
+            let (c', v') = addCarry (reg fC) (reg rA) v
+            fC := c'
+            -- fV := undefined -- TODO
+            setA v'
         op ADC_ZP = OnZP id $ ReadDirect $ \v -> do
             let (c', v') = addCarry (reg fC) (reg rA) v
             fC := c'
@@ -303,11 +310,23 @@ cpu CPUIn{..} = runRTL $ do
                       act cpuMemR
                       rNextA := reg rPC
                       s := pureS Fetch1
+                  OnAddr _ (ReadDirect act) -> do
+                      act cpuMemR
+                      rNextA := reg rPC
+                      s := pureS Fetch1
                   OnZP _ (ModifyDirect act) -> do
                       v <- act cpuMemR
                       rNextW := enabledS v
                       s := pureS WaitWrite
+                  OnAddr _ (ModifyDirect act) -> do
+                      v <- act cpuMemR
+                      rNextW := enabledS v
+                      s := pureS WaitWrite
                   OnZP _ _ -> do
+                      rArgLo := cpuMemR
+                      rNextA := reg rNextA + 1
+                      s := pureS Indirect2
+                  OnAddr _ _ -> do
                       rArgLo := cpuMemR
                       rNextA := reg rNextA + 1
                       s := pureS Indirect2
@@ -318,7 +337,15 @@ cpu CPUIn{..} = runRTL $ do
                   OnZP _ (ReadIndirect _) -> do
                       rNextA := argAddr
                       s := pureS WaitRead
+                  OnAddr _ (ReadIndirect _) -> do
+                      rNextA := argAddr
+                      s := pureS WaitRead
                   OnZP _ (WriteIndirect toAddr act) -> do
+                      rNextA := toAddr argAddr
+                      v <- act
+                      rNextW := enabledS v
+                      s := pureS WaitWrite
+                  OnAddr _ (WriteIndirect toAddr act) -> do
                       rNextA := toAddr argAddr
                       v <- act
                       rNextW := enabledS v
