@@ -1,19 +1,18 @@
-        .org $FF00
+        .org $F000
 
         LDX #$10
 
 loop:
         LDA #$01
         STA $0200,X
+        INX
 
         LDA #$05
-        STA $0201,X
+        STA $0200,X
+        INX
 
         LDA #$08
-        STA $0202,X
-
-        INX
-        INX
+        STA $0200,X
         INX
 
         JMP loop
