@@ -179,7 +179,7 @@ cpu CPUIn{..} = runRTL $ do
             rY := v
 
         op STX_ZP = Opcode1 $ \zp -> do
-            write (unsigned zp) (reg rA)
+            write (unsigned zp) (reg rX)
 
         op INX = Opcode0 $ do
             rX := reg rX + 1
