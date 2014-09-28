@@ -84,7 +84,7 @@ bench romContents = map (fmap $ fromMaybe 0) $ memToMatrix vram
     ramR' = forceDefined 0 ramR
 
     -- 1K of video RAM mapped from 0x0200
-    isVideo = 0x0200 .<=. cpuMemA .&&. cpuMemA .<. 0x0400
+    isVideo = 0x0200 .<=. cpuMemA .&&. cpuMemA .<. 0x0600
 
     vpipe :: Signal CLK (Pipe FBAddr U4)
     vpipe = packEnabled (isEnabled cpuMemW .&&. isVideo) $
