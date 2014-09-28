@@ -72,7 +72,7 @@ opcodes = Bimap.fromList
           , (LDX_Imm,   0xA2)
           , (LDX_ZP,    0xA6)
           , (LDY_Abs_X, 0xBC)
-          , (STX_ZP,    0x44)
+          , (STX_ZP,    0x86)
           , (JMP_Abs,   0x4C)
           , (BEQ,       0xF0)
           , (BNE,       0xD0)
