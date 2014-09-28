@@ -333,15 +333,11 @@ cpu CPUIn{..} = runRTL $ do
                       rNextA := argAddr
                       s := pureS WaitRead
                   OnZP _ (WriteIndirect toAddr act) -> do
-                      rNextA := toAddr argAddr
                       v <- act
-                      rNextW := enabledS v
-                      s := pureS WaitWrite
+                      write (toAddr argAddr) v
                   OnAddr _ (WriteIndirect toAddr act) -> do
-                      rNextA := toAddr argAddr
                       v <- act
-                      rNextW := enabledS v
-                      s := pureS WaitWrite
+                      write (toAddr argAddr) v
                   _ -> do
                       s := pureS Halt
           WaitRead -> do
