@@ -75,15 +75,16 @@ bench romContents = map (fmap $ fromMaybe 0) $ memToMatrix vram
     cpuIRQ = high
     cpuNMI = high
 
-    pipe :: Signal CLK (Pipe Addr Byte)
-    pipe = packEnabled (isEnabled cpuMemW) $
-           pack (cpuMemA, enabledVal cpuMemW)
-    ram = writeMemory pipe
+    mpipe :: Signal CLK (Pipe U14 Byte)
+    mpipe = packEnabled (isEnabled cpuMemW .&. isRAM) $
+            pack (unsigned cpuMemA, enabledVal cpuMemW)
+    ram = writeMemory mpipe
     cpuWait = low
-    -- (ram, cpuWait) = ramWithInit (+1) (const $ pureS 0) pipe
-    ramR = syncRead ram cpuMemA
+
+    ramR = syncRead ram (unsigned cpuMemA)
     ramR' = forceDefined 0 ramR
 
+    -- 1K of video RAM mapped from 0x0200
     isVideo = 0x0200 .<=. cpuMemA .&&. cpuMemA .<. 0x0400
 
     vpipe :: Signal CLK (Pipe FBAddr U4)
@@ -93,7 +94,10 @@ bench romContents = map (fmap $ fromMaybe 0) $ memToMatrix vram
 
     romR = rom cpuMemA (Just . romContents)
 
-    -- One page of ROM is mapped to 0xFFxx
+    -- 16K of RAM mapped from 0x000
+    isRAM = cpuMemA .<. 0x4000
+
+    -- One page of ROM is mapped from 0xF000
     isROM = delay $ cpuMemA .>=. 0xF000
 
     cpuMemR = mux isROM (ramR', romR)
