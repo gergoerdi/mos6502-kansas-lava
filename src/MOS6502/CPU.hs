@@ -189,13 +189,13 @@ cpu CPUIn{..} = runRTL $ do
             rX := reg rA
             delay1
         op TXA = Opcode0 $ do
-            rA := reg rX
+            setA $ reg rX
             delay1
         op TAY = Opcode0 $ do
             rY := reg rA
             delay1
         op TYA = Opcode0 $ do
-            rA := reg rY
+            setA $ reg rY
             delay1
 
         op CMP_Imm = Opcode1 $ \imm -> do
