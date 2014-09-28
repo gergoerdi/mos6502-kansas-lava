@@ -93,7 +93,7 @@ cpu CPUIn{..} = runRTL $ do
     s <- newReg Init
     rOp <- newReg BRK
     rArgLo <- newReg 0x00
-    let argAddr = (unsigned cpuMemR `shiftL` 8) .|. unsigned (reg rArgLo)
+    let argAddr = reg rArgLo `appendS` cpuMemR
 
     -- Registers
     rA <- newReg 0x00

@@ -1,4 +1,3 @@
-{-# LANGUAGE ScopedTypeVariables, TypeFamilies #-}
 {-# LANGUAGE RecordWildCards #-}
 module MOS6502.Bench where
 
