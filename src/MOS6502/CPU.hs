@@ -74,8 +74,7 @@ instance Rep State where
 
 data Indirect s clk = ReadIndirect (Signal clk Byte -> RTL s clk ())
                     | WriteIndirect (Signal clk Addr -> Signal clk Addr) (RTL s clk (Signal clk Byte))
-                    | ModifyDirect (Signal clk Byte -> RTL s clk (Signal clk Byte))
-                    | ReadDirect (Signal clk Byte -> RTL s clk ())
+                    | ReadDirect (Signal clk Addr -> Signal clk Byte -> RTL s clk ())
 
 data Microcode s clk = Opcode0 (RTL s clk ())
                      | Opcode1 (Signal clk Byte -> RTL s clk ())
@@ -152,11 +151,11 @@ cpu CPUIn{..} = runRTL $ do
 
     let op LDA_Imm = Opcode1 $ \imm -> do
             setA imm
-        op LDA_ZP = OnZP id $ ReadDirect $ \v -> do
+        op LDA_ZP = OnZP id $ ReadDirect $ \ _ v -> do
             setA v
         op LDA_Ind_X = OnZP (+ reg rX) $ ReadIndirect $ \v -> do
             setA v
-        op LDA_Abs_X = OnAddr (+ unsigned (reg rX)) $ ReadDirect $ \v -> do
+        op LDA_Abs_X = OnAddr (+ unsigned (reg rX)) $ ReadDirect $ \ _ v -> do
             setA v
 
         op STA_Abs = Opcode2 $ \addr -> do
@@ -176,10 +175,10 @@ cpu CPUIn{..} = runRTL $ do
 
         op LDX_Imm = Opcode1 $ \imm -> do
             rX := imm
-        op LDX_ZP = OnZP id $ ReadDirect $ \v -> do
+        op LDX_ZP = OnZP id $ ReadDirect $ \ _ v -> do
             rX := v
 
-        op LDY_Abs_X = OnAddr (+ unsigned (reg rX)) $ ReadDirect $ \v -> do
+        op LDY_Abs_X = OnAddr (+ unsigned (reg rX)) $ ReadDirect $ \ _ v -> do
             rY := v
 
         op STX_ZP = Opcode1 $ \zp -> do
@@ -208,17 +207,17 @@ cpu CPUIn{..} = runRTL $ do
         op CPX_Imm = Opcode1 $ cmp rX
         op CPY_Imm = Opcode1 $ cmp rY
 
-        op INC_ZP = OnZP id $ ModifyDirect $ \v -> do
+        op INC_ZP = OnZP id $ ReadDirect $ \addr v -> do
             let v' = v + 1
             fZ := v' .==. 0
             fN := v' .>=. 0x80
-            return v'
+            write addr v'
 
-        op DEC_ZP = OnZP id $ ModifyDirect $ \v -> do
+        op DEC_ZP = OnZP id $ ReadDirect $ \addr v -> do
             let v' = v - 1
             fZ := v' .==. 0
             fN := v' .>=. 0x80
-            return v'
+            write addr v'
 
         op CLC = Opcode0 $ do
             fC := low
@@ -228,7 +227,7 @@ cpu CPUIn{..} = runRTL $ do
             fC := c'
             -- fV := undefined -- TODO
             setA v'
-        op ADC_ZP = OnZP id $ ReadDirect $ \v -> do
+        op ADC_ZP = OnZP id $ ReadDirect $ \ _ v -> do
             let (c', v') = addCarry (reg fC) (reg rA) v
             fC := c'
             -- fV := undefined -- TODO
@@ -308,21 +307,13 @@ cpu CPUIn{..} = runRTL $ do
           Indirect1 -> do
               switch (reg rOp) $ \k -> case op k of
                   OnZP _ (ReadDirect act) -> do
-                      act cpuMemR
+                      act (reg rNextA) cpuMemR
                       rNextA := reg rPC
                       s := pureS Fetch1
                   OnAddr _ (ReadDirect act) -> do
-                      act cpuMemR
+                      act (reg rNextA) cpuMemR
                       rNextA := reg rPC
                       s := pureS Fetch1
-                  OnZP _ (ModifyDirect act) -> do
-                      v <- act cpuMemR
-                      rNextW := enabledS v
-                      s := pureS WaitWrite
-                  OnAddr _ (ModifyDirect act) -> do
-                      v <- act cpuMemR
-                      rNextW := enabledS v
-                      s := pureS WaitWrite
                   OnZP _ _ -> do
                       rArgLo := cpuMemR
                       rNextA := reg rNextA + 1
