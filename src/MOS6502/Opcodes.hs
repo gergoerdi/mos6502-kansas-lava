@@ -34,6 +34,7 @@ data Opcode = LDA_Imm
             | DEC_ZP
             | LDX_Imm
             | LDX_ZP
+            | LDY_ZP
             | LDY_Abs_X
             | STX_ZP
             | JMP_Abs
@@ -76,6 +77,7 @@ opcodes = Bimap.fromList
           , (DEC_ZP,    0xC6)
           , (LDX_Imm,   0xA2)
           , (LDX_ZP,    0xA6)
+          , (LDY_ZP,    0xA4)
           , (LDY_Abs_X, 0xBC)
           , (STX_ZP,    0x86)
           , (JMP_Abs,   0x4C)

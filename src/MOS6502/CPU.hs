@@ -74,7 +74,7 @@ instance Rep State where
 
     repType _ = repType (Witness :: Witness StateSize)
 
-data Indirect s clk = ReadIndirect (Signal clk Byte -> RTL s clk ())
+data Indirect s clk = ReadIndirect (Signal clk Addr -> Signal clk Addr) (Signal clk Byte -> RTL s clk ())
                     | WriteIndirect (Signal clk Addr -> Signal clk Addr) (RTL s clk (Signal clk Byte))
                     | ReadDirect (Signal clk Addr -> Signal clk Byte -> RTL s clk ())
 
@@ -166,9 +166,11 @@ cpu CPUIn{..} = runRTL $ do
             setA imm
         op LDA_ZP = OnZP id $ ReadDirect $ \ _ v -> do
             setA v
-        op LDA_Ind_X = OnZP (+ reg rX) $ ReadIndirect $ \v -> do
-            setA v
         op LDA_Abs_X = OnAddr (+ unsigned (reg rX)) $ ReadDirect $ \ _ v -> do
+            setA v
+        op LDA_Ind_X = OnZP (+ reg rX) $ ReadIndirect id $ \v -> do
+            setA v
+        op LDA_Ind_Y = OnZP id $ ReadIndirect (+ unsigned (reg rY)) $ \v -> do
             setA v
 
         op STA_Abs = Opcode2 $ \addr -> do
@@ -191,6 +193,8 @@ cpu CPUIn{..} = runRTL $ do
         op LDX_ZP = OnZP id $ ReadDirect $ \ _ v -> do
             rX := v
 
+        op LDY_ZP = OnZP id $ ReadDirect $ \ _ v -> do
+            rY := v
         op LDY_Abs_X = OnAddr (+ unsigned (reg rX)) $ ReadDirect $ \ _ v -> do
             rY := v
 
@@ -348,11 +352,11 @@ cpu CPUIn{..} = runRTL $ do
               s := pureS Halt
           Indirect2 -> do
               switch (reg rOp) $ \k -> case op k of
-                  OnZP _ (ReadIndirect _) -> do
-                      rNextA := argAddr
+                  OnZP _ (ReadIndirect toAddr _) -> do
+                      rNextA := toAddr argAddr
                       s := pureS WaitRead
-                  OnAddr _ (ReadIndirect _) -> do
-                      rNextA := argAddr
+                  OnAddr _ (ReadIndirect toAddr _) -> do
+                      rNextA := toAddr argAddr
                       s := pureS WaitRead
                   OnZP _ (WriteIndirect toAddr act) -> do
                       v <- act
@@ -369,7 +373,7 @@ cpu CPUIn{..} = runRTL $ do
               s := pureS WaitRead
           WaitRead -> do
               switch (reg rOp) $ \k -> case op k of
-                  OnZP _ (ReadIndirect act) -> do
+                  OnZP _ (ReadIndirect _ act) -> do
                       act cpuMemR
                       rNextA := reg rPC
                       s := pureS Fetch1
