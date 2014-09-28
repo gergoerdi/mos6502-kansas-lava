@@ -228,10 +228,8 @@ cpu CPUIn{..} = runRTL $ do
         op ADC_ZP = OnZP id $ ReadDirect $ \v -> do
             let (c', v') = addCarry (reg fC) (reg rA) v
             fC := c'
-            fZ := v' .==. 0
             -- fV := undefined -- TODO
-            fN := v' .>=. 0x80
-            rA := v'
+            setA v'
 
         op ASL_A = Opcode0 $ do
             rA := reg rA `shiftL` 1
