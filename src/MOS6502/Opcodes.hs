@@ -77,7 +77,7 @@ opcodes = Bimap.fromList
           , (BEQ,       0xF0)
           , (BNE,       0xD0)
           , (CLC,       0x18)
-          , (ADC_ZP,    0x75)
+          , (ADC_ZP,    0x65)
           , (ASL_A,     0x0A)
           , (CMP_Imm,   0xC9)
           , (BRK,       0x00)
