@@ -235,10 +235,10 @@ cpu CPUIn{..} = runRTL $ do
 
         op BNE = Opcode1 $ \offset -> do
             WHEN (bitNot $ reg fZ) $ do
-                rPC := reg rPC + 1 + unsigned offset
+                rPC := reg rPC + 1 + signed offset
         op BEQ = Opcode1 $ \offset -> do
             WHEN (reg fZ) $ do
-                rPC := reg rPC + 1 + unsigned offset
+                rPC := reg rPC + 1 + signed offset
 
         op _ = Jam
 
