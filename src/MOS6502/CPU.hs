@@ -73,7 +73,7 @@ instance Rep State where
     repType _ = repType (Witness :: Witness StateSize)
 
 data Indirect s clk = ReadIndirect (Signal clk Byte -> RTL s clk ())
-                    | WriteIndirect (RTL s clk (Signal clk Byte))
+                    | WriteIndirect (Signal clk Addr -> Signal clk Addr) (RTL s clk (Signal clk Byte))
                     | ModifyDirect (Signal clk Byte -> RTL s clk (Signal clk Byte))
                     | ReadDirect (Signal clk Byte -> RTL s clk ())
 
@@ -163,7 +163,9 @@ cpu CPUIn{..} = runRTL $ do
             let addr' = addr + unsigned (reg rX)
             write addr' (reg rA)
             delay1
-        op STA_Ind_X = OnZP (+ reg rX) $ WriteIndirect $ do
+        op STA_Ind_X = OnZP (+ reg rX) $ WriteIndirect id $ do
+            return $ reg rA
+        op STA_Ind_Y = OnZP id $ WriteIndirect (+ unsigned (reg rY)) $ do
             return $ reg rA
 
         op LDX_Imm = Opcode1 $ \imm -> do
@@ -316,8 +318,8 @@ cpu CPUIn{..} = runRTL $ do
                   OnZP _ (ReadIndirect _) -> do
                       rNextA := argAddr
                       s := pureS WaitRead
-                  OnZP _ (WriteIndirect act) -> do
-                      rNextA := argAddr
+                  OnZP _ (WriteIndirect toAddr act) -> do
+                      rNextA := toAddr argAddr
                       v <- act
                       rNextW := enabledS v
                       s := pureS WaitWrite
