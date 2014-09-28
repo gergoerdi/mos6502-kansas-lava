@@ -31,7 +31,7 @@ data CPUOut clk = CPUOut
 
 data CPUDebug clk = CPUDebug
     { cpuState :: Signal clk State
-    , cpuArgLo :: Signal clk Byte
+    , cpuArgBuf :: Signal clk Byte
     , cpuA :: Signal clk Byte
     , cpuX :: Signal clk Byte
     , cpuY :: Signal clk Byte
@@ -50,10 +50,12 @@ data State = Halt
            | Fetch3
            | Indirect1
            | Indirect2
+           | WaitPopAddr
            | WaitRead
+           | WaitPushAddr
            | WaitWrite
            deriving (Show, Eq, Enum, Bounded)
-type StateSize = X11
+type StateSize = X13
 
 instance Rep State where
     type W State = X4 -- W StateSize
@@ -81,6 +83,7 @@ data Microcode s clk = Opcode0 (RTL s clk ())
                      | Opcode2 (Signal clk Addr -> RTL s clk ())
                      | OnZP (Signal clk Byte -> Signal clk Byte) (Indirect s clk)
                      | OnAddr (Signal clk Addr -> Signal clk Addr) (Indirect s clk)
+                     | PopAddr (Signal clk Addr -> RTL s clk ())
                      | Jam
 
 bitsToByte :: (Clock clk)
@@ -109,14 +112,14 @@ cpu CPUIn{..} = runRTL $ do
     -- State
     s <- newReg Init
     rOp <- newReg BRK
-    rArgLo <- newReg 0x00
-    let argAddr = reg rArgLo `appendS` cpuMemR
+    rArgBuf <- newReg 0x00
+    let argAddr = reg rArgBuf `appendS` cpuMemR
 
     -- Registers
     rA <- newReg 0x00
     rX <- newReg 0x00
     rY <- newReg 0x00
-    rSP <- newReg 0x00
+    rSP <- newReg 0xFF
     rPC <- newReg 0x0000 -- To be filled in by Init
 
     -- Flags
@@ -147,6 +150,16 @@ cpu CPUIn{..} = runRTL $ do
             rNextA := addr
             rNextW := enabledS val
             s := pureS WaitWrite
+        pushAddr addr = do
+            rNextA := 0x0100 + unsigned (reg rSP)
+            rNextW := enabledS (unsigned $ addr `shiftR` 8)
+            rArgBuf := unsigned addr
+            rSP := reg rSP - 1
+            s := pureS WaitPushAddr
+        popAddr = do
+            rNextA := 0x0100 + unsigned (reg rSP + 1)
+            rSP := reg rSP + 1
+            s := pureS WaitPopAddr
         delay1 = return () -- TODO
 
     let op LDA_Imm = Opcode1 $ \imm -> do
@@ -240,6 +253,13 @@ cpu CPUIn{..} = runRTL $ do
         op JMP_Abs = Opcode2 $ \addr -> do
             rPC := addr
 
+        op JSR = Opcode2 $ \addr -> do
+            pushAddr (reg rPC)
+            rPC := addr
+
+        op RTS = PopAddr $ \addr -> do
+            rPC := addr + 1
+
         op BNE = Opcode1 $ \offset -> do
             WHEN (bitNot $ reg fZ) $ do
                 rPC := reg rPC + 1 + signed offset
@@ -269,6 +289,8 @@ cpu CPUIn{..} = runRTL $ do
                       s := pureS Halt
                   Opcode0 act -> do
                       act
+                  PopAddr{} -> do
+                      popAddr
                   _ -> do
                       s := pureS Fetch2
               rPC := reg rPC + 1
@@ -282,10 +304,10 @@ cpu CPUIn{..} = runRTL $ do
                       rNextA := unsigned $ toZP cpuMemR
                       s := pureS Indirect1
                   Opcode2 _ -> do
-                      rArgLo := cpuMemR
+                      rArgBuf := cpuMemR
                       s := pureS Fetch3
                   OnAddr{} -> do
-                      rArgLo := cpuMemR
+                      rArgBuf := cpuMemR
                       s := pureS Fetch3
                   _ -> do
                       s := pureS Halt
@@ -315,11 +337,11 @@ cpu CPUIn{..} = runRTL $ do
                       rNextA := reg rPC
                       s := pureS Fetch1
                   OnZP _ _ -> do
-                      rArgLo := cpuMemR
+                      rArgBuf := cpuMemR
                       rNextA := reg rNextA + 1
                       s := pureS Indirect2
                   OnAddr _ _ -> do
-                      rArgLo := cpuMemR
+                      rArgBuf := cpuMemR
                       rNextA := reg rNextA + 1
                       s := pureS Indirect2
                   _ -> return ()
@@ -340,14 +362,28 @@ cpu CPUIn{..} = runRTL $ do
                       write (toAddr argAddr) v
                   _ -> do
                       s := pureS Halt
+          WaitPopAddr -> do
+              rArgBuf := cpuMemR
+              rNextA := reg rNextA + 1
+              rSP := reg rSP + 1
+              s := pureS WaitRead
           WaitRead -> do
               switch (reg rOp) $ \k -> case op k of
                   OnZP _ (ReadIndirect act) -> do
                       act cpuMemR
                       rNextA := reg rPC
                       s := pureS Fetch1
+                  PopAddr act -> do
+                      act argAddr
+                      rNextA := var rPC
+                      s := pureS Fetch1
                   _ -> do
                       s := pureS Halt
+          WaitPushAddr -> do
+              rNextA := reg rNextA - 1
+              rSP := reg rSP - 1
+              rNextW := enabledS (reg rArgBuf)
+              s := pureS WaitWrite
           WaitWrite -> do
               rNextW := disabledS
               rNextA := reg rPC
@@ -361,7 +397,7 @@ cpu CPUIn{..} = runRTL $ do
     -- Debug view
     let cpuState = reg s
         cpuOp = reg rOp
-        cpuArgLo = reg rArgLo
+        cpuArgBuf = reg rArgBuf
     let cpuA = reg rA
         cpuX = reg rX
         cpuY = reg rY
