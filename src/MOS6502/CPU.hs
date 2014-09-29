@@ -151,13 +151,13 @@ cpu CPUIn{..} = runRTL $ do
             rNextW := enabledS val
             s := pureS WaitWrite
         pushAddr addr = do
-            rNextA := 0x0100 + unsigned (reg rSP)
+            rNextA := 0x0100 .|. unsigned (reg rSP)
             rNextW := enabledS (unsigned $ addr `shiftR` 8)
             rArgBuf := unsigned addr
             rSP := reg rSP - 1
             s := pureS WaitPushAddr
         popAddr = do
-            rNextA := 0x0100 + unsigned (reg rSP + 1)
+            rNextA := 0x0100 .|. unsigned (reg rSP + 1)
             rSP := reg rSP + 1
             s := pureS WaitPopAddr
         delay1 = return () -- TODO
@@ -193,6 +193,8 @@ cpu CPUIn{..} = runRTL $ do
         op LDX_ZP = OnZP id $ ReadDirect $ \ _ v -> do
             rX := v
 
+        op LDY_Imm = Opcode1 $ \imm -> do
+            rY := imm
         op LDY_ZP = OnZP id $ ReadDirect $ \ _ v -> do
             rY := v
         op LDY_Abs_X = OnAddr (+ unsigned (reg rX)) $ ReadDirect $ \ _ v -> do
@@ -239,6 +241,10 @@ cpu CPUIn{..} = runRTL $ do
         op CLC = Opcode0 $ do
             fC := low
 
+        op AND_Imm = Opcode1 $ \v -> do
+            let v' = reg rA .&. v
+            setA v'
+
         op ADC_Imm = Opcode1 $ \v -> do
             let (c', v') = addCarry (reg fC) (reg rA) v
             fC := c'
@@ -251,8 +257,11 @@ cpu CPUIn{..} = runRTL $ do
             setA v'
 
         op ASL_A = Opcode0 $ do
-            rA := reg rA `shiftL` 1
             fC := reg rA .>=. 0x80
+            setA $ reg rA `shiftL` 1
+
+        op LSR_A = Opcode0 $ do
+            setA $ reg rA `rotateR` 1
 
         op JMP_Abs = Opcode2 $ \addr -> do
             rPC := addr
@@ -264,11 +273,22 @@ cpu CPUIn{..} = runRTL $ do
         op RTS = PopAddr $ \addr -> do
             rPC := addr + 1
 
+        op PHA = Opcode0 $ do
+            write (0x0100 .|. unsigned (reg rSP)) (reg rA)
+            rSP := reg rSP - 1
+
+        op PLA = OnAddr (const $ 0x0100 .|. unsigned (reg rSP)) $ ReadDirect $ \ _ v -> do
+            rSP := reg rSP + 1
+            setA v
+
         op BNE = Opcode1 $ \offset -> do
             WHEN (bitNot $ reg fZ) $ do
                 rPC := reg rPC + 1 + signed offset
         op BEQ = Opcode1 $ \offset -> do
             WHEN (reg fZ) $ do
+                rPC := reg rPC + 1 + signed offset
+        op BCC = Opcode1 $ \offset -> do
+            WHEN (bitNot $ reg fC) $ do
                 rPC := reg rPC + 1 + signed offset
 
         op _ = Jam
