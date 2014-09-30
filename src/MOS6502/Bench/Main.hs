@@ -7,6 +7,9 @@ import MOS6502.Bench.Video
 
 import qualified Graphics.UI.Gtk as Gtk
 import Control.Concurrent
+import System.Environment (getArgs)
+import qualified Data.ByteString as BS
+import Control.Applicative
 
 -- main :: IO ()
 -- main = do
@@ -17,8 +20,14 @@ import Control.Concurrent
 
 main :: IO ()
 main = do
-    fb <- demo'
-    let mtx = fb !! 50000
+    args <- getArgs
+    fileName <- case args of
+        [fileName] -> return fileName
+        _ -> error "Missing filename"
+
+    rom <- programToROM 0xF000 <$> BS.readFile fileName
+    let mtxs = benchVideo rom
+        mtx = mtxs !! 5000
 
     Gtk.initGUI
     window <- Gtk.windowNew

@@ -3,9 +3,9 @@ module MOS6502.Bench where
 
 import MOS6502.Types
 import MOS6502.CPU
--- import MOS6502.Opcodes
+import MOS6502.Opcodes
 import MOS6502.Bench.Video (FBAddr)
-import MOS6502.Bench.GTK
+-- import MOS6502.Bench.GTK
 
 import Language.KansasLava
 import Language.KansasLava.Signal (shallowMapS)
@@ -31,6 +31,7 @@ main = do
     forever yield
 -}
 
+{-
 demo :: IO ()
 demo = do
     fb <- demo'
@@ -42,14 +43,13 @@ demo = do
     step 0
     step 1
     mapM_ step [10..]
+-}
 
-demo' :: IO [Matrix FBAddr U4]
-demo' = bench . programToROM 0xF000 <$> program
-
-program :: IO BS.ByteString
--- program = BS.readFile "example/SoftSprites.obj"
-program = BS.readFile "example/FullscreenLogo.obj"
--- program = BS.readFile "example/FillScreen.obj"
+-- demo' :: IO [Matrix FBAddr U4]
+testBench :: IO (Signal CLK (Opcode, State, (Addr, Enabled Byte, Byte)))
+testBench = bench . programToROM 0xF000 <$> BS.readFile fileName
+  where
+    fileName = "example/rle.obj"
 
 programToROM :: Addr -> BS.ByteString -> (Addr -> Byte)
 programToROM startingAddr bs addr
@@ -64,11 +64,20 @@ programToROM startingAddr bs addr
 forceDefined :: (Clock clk, Rep a) => a -> Signal clk a -> Signal clk a
 forceDefined def = shallowMapS (fmap (optX . (<|> Just def) . unX))
 
-bench :: (Addr -> Byte) -> [Matrix FBAddr U4]
-bench romContents = map (fmap $ fromMaybe 0) $ memToMatrix vram
--- bench romContents = pack (cpuOp _cpuDebug, cpuState _cpuDebug, cpuPC _cpuDebug) :: Signal CLK (Opcode, State, Addr)
+benchVideo :: (Addr -> Byte) -> [Matrix FBAddr U4]
+benchVideo romContents = map (fmap $ fromMaybe 0) $ memToMatrix vram
   where
-    (_cpuOut@CPUOut{..}, _cpuDebug) = cpu CPUIn{..}
+    (vram, _, _, _) = benchCircuit romContents
+
+bench :: (Addr -> Byte) -> Signal CLK (Opcode, State, (Addr, Enabled Byte, Byte))
+bench romContents = case benchCircuit romContents of
+    (_, CPUIn{..}, CPUOut{..}, CPUDebug{..}) -> pack (cpuOp, cpuState, pack (cpuMemA, cpuMemW, cpuMemR))
+
+benchCircuit :: (Addr -> Byte) -> (Signal CLK (FBAddr -> U4), CPUIn CLK, CPUOut CLK, CPUDebug CLK)
+benchCircuit romContents = (vram, cpuIn, cpuOut, cpuDebug)
+  where
+    cpuIn = CPUIn{..}
+    (cpuOut@CPUOut{..}, cpuDebug) = cpu cpuIn
 
     cpuIRQ :: Seq Bool
     cpuIRQ = high
