@@ -225,13 +225,13 @@ cpu CPUIn{..} = runRTL $ do
             setY $ reg rY - 1
             delay1
         op TAX = Opcode0 $ do
-            rX := reg rA
+            setX $ reg rA
             delay1
         op TXA = Opcode0 $ do
             setA $ reg rX
             delay1
         op TAY = Opcode0 $ do
-            rY := reg rA
+            setY $ reg rA
             delay1
         op TYA = Opcode0 $ do
             setA $ reg rY
