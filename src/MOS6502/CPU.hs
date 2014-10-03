@@ -246,7 +246,7 @@ cpu CPUIn{..} = runRTL $ do
             setY v
         op LDY_Abs = Op 4 $ OnAddr id $ ReadDirect $ \ _ v -> do
             setY v
-        op LDY_Abs_X = Op 4 $ OnAddr (+ unsigned (reg rY)) $ ReadDirect $ \ _ v -> do
+        op LDY_Abs_X = Op 4 $ OnAddr (+ unsigned (reg rX)) $ ReadDirect $ \ _ v -> do
             setY v
 
         op STA_ZP = Op 3 $ Opcode1 $ \zp -> do
