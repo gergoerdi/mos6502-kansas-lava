@@ -199,7 +199,7 @@ opcodes = Bimap.fromList
           , (STA_ZP_X,  0x95)
           , (STA_Abs,   0x8D)
           , (STA_Abs_X, 0x9D)
-          , (STA_Abs_X, 0x99)
+          , (STA_Abs_Y, 0x99)
           , (STA_Ind_X, 0x81)
           , (STA_Ind_Y, 0x91)
 
