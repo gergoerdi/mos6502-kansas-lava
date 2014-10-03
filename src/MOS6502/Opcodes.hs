@@ -118,6 +118,11 @@ data Opcode = LDA_Imm
 
             | CLC
             | SEC
+            | CLI
+            | SEI
+            | CLV
+            | CLD
+            | SED
 
             | CMP_Imm
             | CMP_ZP
@@ -275,6 +280,11 @@ opcodes = Bimap.fromList
 
           , (CLC,       0x18)
           , (SEC,       0x38)
+          , (CLI,       0x58)
+          , (SEI,       0x78)
+          , (CLV,       0xB8)
+          , (CLD,       0xD8)
+          , (SED,       0xF8)
 
           , (CMP_Imm,   0xC9)
           , (CMP_ZP,    0xC5)
