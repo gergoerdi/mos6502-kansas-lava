@@ -214,12 +214,12 @@ cpu CPUIn{..} = runRTL $ do
     let adc a v = do
             let (c', v') = addCarry (reg fC) a v
             fC := c'
-            -- fV := undefined -- TODO
+            fV := v' `testABit` 7
             return v'
         sbc a v = do
             let (c', v') = subCarry (reg fC) a v
             fC := c'
-            -- fV := undefined -- TODO
+            fV := bitNot $ v' `testABit` 7
             return v'
 
         cmp x y = do
@@ -409,6 +409,11 @@ cpu CPUIn{..} = runRTL $ do
 
         op CLC = Op 2 $ Opcode0 $ fC := low
         op SEC = Op 2 $ Opcode0 $ fC := high
+        op CLI = Op 2 $ Opcode0 $ fI := low
+        op SEI = Op 2 $ Opcode0 $ fI := high
+        op CLV = Op 2 $ Opcode0 $ fV := low
+        op CLD = Op 2 $ Opcode0 $ fD := low
+        op SED = Op 2 $ Opcode0 $ fD := high
 
         -- TODO: flags
         op ASL_A = Op 2 $ Opcode0 $ do
