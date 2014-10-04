@@ -51,12 +51,11 @@ data State = Halt
            | Fetch3
            | Indirect1
            | Indirect2
-           | WaitPopAddr
            | WaitRead
            | WaitPushAddr
            | WaitWrite
            deriving (Show, Eq, Enum, Bounded)
-type StateSize = X13
+type StateSize = X12
 
 instance Rep State where
     type W State = X4 -- W StateSize
@@ -85,7 +84,6 @@ data Microcode s clk = Opcode0 (RTL s clk ())
                      | OnZP (Signal clk Byte -> Signal clk Byte) (Indirect s clk)
                      | OnAddr (Signal clk Addr -> Signal clk Addr) (Indirect s clk)
                      | PopByte (Signal clk Byte -> RTL s clk ())
-                     | PopAddr (Signal clk Addr -> RTL s clk ())
 
 data Op s clk = Op Int (Microcode s clk)
               | Jam
@@ -176,12 +174,6 @@ cpu CPUIn{..} = runRTL $ do
             rNextA := addr
             rNextW := enabledS val
             s := pureS WaitWrite
-        pushAddr addr = do
-            rNextA := pushTarget
-            rNextW := enabledS (unsigned $ addr `shiftR` 8)
-            rArgBuf := unsigned addr
-            rSP := reg rSP - 1
-            s := pureS WaitPushAddr
 
     let aluA' f aop = case aop of
             Imm -> Op 2 $ Opcode1 act
@@ -412,12 +404,17 @@ cpu CPUIn{..} = runRTL $ do
             s := pureS FetchVector1
 
         op JSR = Op 6 $ Opcode2 $ \addr -> do
-            pushAddr (reg rPC)
+            rNextA := pushTarget
+            rNextW := enabledS (unsigned $ reg rPC `shiftR` 8)
+            rArgBuf := unsigned (reg rPC)
+            rSP := reg rSP - 2
+            s := pureS WaitPushAddr
             rPC := addr
 
-        -- TODO: implement this via FetchVector1?
-        op RTS = Op 6 $ PopAddr $ \addr -> do
-            rPC := addr + 1
+        op RTS = Op 6 $ Opcode0 $ do
+            rSP := reg rSP + 2
+            rNextA := popTarget
+            s := pureS FetchVector1
 
         op PHA = Op 3 $ Opcode0 $ do
             write pushTarget (reg rA)
@@ -443,7 +440,9 @@ cpu CPUIn{..} = runRTL $ do
               rNextA := reg rNextA + 1
               s := pureS FetchVector2
           FetchVector2 -> do
-              rPC := (reg rPC .&. 0xFF) .|. (unsigned cpuMemR `shiftL` 8)
+              let pc' = (reg rPC .&. 0xFF) .|. (unsigned cpuMemR `shiftL` 8)
+                  isRTS = reg rOp .==. pureS RTS
+              rPC := mux isRTS (pc', pc' + 1) -- BWAAAAH!
               rNextA := var rPC
               s := pureS Fetch1
           Fetch1 -> do
@@ -458,10 +457,6 @@ cpu CPUIn{..} = runRTL $ do
                           rNextA := popTarget
                           rSP := reg rSP + 1
                           s := pureS WaitRead
-                      PopAddr{} -> do
-                          rNextA := popTarget
-                          rSP := reg rSP + 1
-                          s := pureS WaitPopAddr
                       _ -> do
                           s := pureS Fetch2
               rPC := reg rPC + 1
@@ -541,11 +536,6 @@ cpu CPUIn{..} = runRTL $ do
                           write (toAddr argAddr) v
                       _ -> return ()
               s := pureS Halt
-          WaitPopAddr -> do
-              rArgBuf := cpuMemR
-              rNextA := reg rNextA + 1
-              rSP := reg rSP + 1
-              s := pureS WaitRead
           WaitRead -> do
               switch (reg rOp) $ \k -> case op k of
                   Jam -> s := pureS Halt
@@ -554,15 +544,12 @@ cpu CPUIn{..} = runRTL $ do
                           act cpuMemR
                       PopByte act -> do
                           act cpuMemR
-                      PopAddr act -> do
-                          act argAddr
                       _ -> do
                           s := pureS Halt
               rNextA := var rPC
               s := pureS Fetch1
           WaitPushAddr -> do
               rNextA := reg rNextA - 1
-              rSP := reg rSP - 1
               rNextW := enabledS (reg rArgBuf)
               s := pureS WaitWrite
           WaitWrite -> do
