@@ -157,6 +157,9 @@ data Opcode = LDA_Imm
 
             | PHA
             | PLA
+            | PHP
+            | PLP
+
             | ASL_A
             | LSR_A
             | BRK
@@ -319,6 +322,9 @@ opcodes = Bimap.fromList
 
           , (PHA,       0x48)
           , (PLA,       0x68)
+          , (PHP,       0x08)
+          , (PLP,       0x28)
+
           , (ASL_A,     0x0A)
           , (LSR_A,     0x4A)
           , (BRK,       0x00)

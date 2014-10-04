@@ -93,6 +93,11 @@ bitsToByte :: (Clock clk)
            -> Signal clk Byte
 bitsToByte = bitwise . packMatrix
 
+byteToBits :: (Clock clk)
+           => Signal clk Byte
+           -> Matrix X8 (Signal clk Bool)
+byteToBits = unpackMatrix . bitwise
+
 addExtend :: (Clock clk)
           => Signal clk Bool
           -> Signal clk Byte
@@ -152,22 +157,39 @@ cpu CPUIn{..} = runRTL $ do
     fN <- newReg False
 
     let flags = bitsToByte . Matrix.fromList $
-                map reg [fC, fZ, fI, fD, fB, fV, fN] ++ [low]
+                [ reg fC
+                , reg fZ
+                , reg fI
+                , reg fD
+                , reg fB
+                , high
+                , reg fV
+                , reg fN
+                ]
+        setFlags mtx = do
+            let [c, z, i, d, b, _, v, n] = Matrix.toList . byteToBits $ mtx
+            fC := c
+            fZ := z
+            fI := i
+            fD := d
+            fB := b
+            fV := v
+            fN := n
 
     rNextA <- newReg 0x0000
     rNextW <- newReg Nothing
 
-    let setFlags v = do
+    let setZN v = do
             fZ := v .==. 0
             fN := v .>=. 0x80
     let setA v = do
-            setFlags v
+            setZN v
             rA := v
         setX v = do
-            setFlags v
+            setZN v
             rX := v
         setY v = do
-            setFlags v
+            setZN v
             rY := v
 
     let write addr val = do
@@ -291,36 +313,36 @@ cpu CPUIn{..} = runRTL $ do
 
         op INC_ZP = Op 5 $ OnZP id $ ReadDirect $ \addr v -> do
             let v' = v + 1
-            setFlags v'
+            setZN v'
             write addr v'
         op INC_ZP_X = Op 6 $ OnZP (+ reg rX) $ ReadDirect $ \addr v -> do
             let v' = v + 1
-            setFlags v'
+            setZN v'
             write addr v'
         op INC_Abs = Op 6 $ OnAddr id $ ReadDirect $ \addr v -> do
             let v' = v + 1
-            setFlags v'
+            setZN v'
             write addr v'
         op INC_Abs_X = Op 7 $ OnAddr (+ unsigned (reg rX)) $ ReadDirect $ \addr v -> do
             let v' = v + 1
-            setFlags v'
+            setZN v'
             write addr v'
 
         op DEC_ZP = Op 5 $ OnZP id $ ReadDirect $ \addr v -> do
             let v' = v - 1
-            setFlags v'
+            setZN v'
             write addr v'
         op DEC_ZP_X = Op 6 $ OnZP (+ reg rX) $ ReadDirect $ \addr v -> do
             let v' = v - 1
-            setFlags v'
+            setZN v'
             write addr v'
         op DEC_Abs = Op 6 $ OnAddr id $ ReadDirect $ \addr v -> do
             let v' = v - 1
-            setFlags v'
+            setZN v'
             write addr v'
         op DEC_Abs_X = Op 7 $ OnAddr (+ unsigned (reg rX)) $ ReadDirect $ \addr v -> do
             let v' = v - 1
-            setFlags v'
+            setZN v'
             write addr v'
 
         op AND_Imm = aluA (.&.) Imm
@@ -419,9 +441,12 @@ cpu CPUIn{..} = runRTL $ do
         op PHA = Op 3 $ Opcode0 $ do
             write pushTarget (reg rA)
             rSP := reg rSP - 1
+        op PLA = Op 4 $ PopByte setA
 
-        op PLA = Op 4 $ PopByte $ \v -> do
-            setA v
+        op PHP = Op 3 $ Opcode0 $ do
+            write pushTarget flags
+            rSP := reg rSP - 1
+        op PLP = Op 4 $ PopByte setFlags
 
         op BEQ = branch (reg fZ)
         op BNE = branch (bitNot $ reg fZ)
