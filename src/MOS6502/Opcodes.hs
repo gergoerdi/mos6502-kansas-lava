@@ -124,6 +124,9 @@ data Opcode = LDA_Imm
             | CLD
             | SED
 
+            | BIT_ZP
+            | BIT_Abs
+
             | CMP_Imm
             | CMP_ZP
             | CMP_ZP_X
@@ -161,7 +164,30 @@ data Opcode = LDA_Imm
             | PLP
 
             | ASL_A
+            | ASL_ZP
+            | ASL_ZP_X
+            | ASL_Abs
+            | ASL_Abs_X
+
             | LSR_A
+            | LSR_ZP
+            | LSR_ZP_X
+            | LSR_Abs
+            | LSR_Abs_X
+
+            | ROL_A
+            | ROL_ZP
+            | ROL_ZP_X
+            | ROL_Abs
+            | ROL_Abs_X
+
+            | ROR_A
+            | ROR_ZP
+            | ROR_ZP_X
+            | ROR_Abs
+            | ROR_Abs_X
+
+            | NOP
             | BRK
             deriving (Eq, Ord, Bounded, Enum)
 
@@ -289,6 +315,9 @@ opcodes = Bimap.fromList
           , (CLD,       0xD8)
           , (SED,       0xF8)
 
+          , (BIT_ZP,    0x24)
+          , (BIT_Abs,   0x2C)
+
           , (CMP_Imm,   0xC9)
           , (CMP_ZP,    0xC5)
           , (CMP_ZP_X,  0xD5)
@@ -326,7 +355,18 @@ opcodes = Bimap.fromList
           , (PLP,       0x28)
 
           , (ASL_A,     0x0A)
+          , (ASL_ZP,    0x06)
+          , (ASL_ZP_X,  0x16)
+          , (ASL_Abs,   0x0E)
+          , (ASL_Abs_X, 0x1E)
+
           , (LSR_A,     0x4A)
+          , (LSR_ZP,    0x46)
+          , (LSR_ZP_X,  0x56)
+          , (LSR_Abs,   0x4E)
+          , (LSR_Abs_X, 0x5E)
+
+          , (NOP,       0xEA)
           , (BRK,       0x00)
           ]
 

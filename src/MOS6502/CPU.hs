@@ -109,10 +109,12 @@ addCarry :: (Clock clk)
          => Signal clk Bool
          -> Signal clk Byte
          -> Signal clk Byte
-         -> (Signal clk Bool, Signal clk Byte)
-addCarry c x y = (testABit z 8, unsigned z)
+         -> (Signal clk Bool, Signal clk Bool, Signal clk Byte)
+addCarry c x y = (carry, overflow, unsigned z)
   where
     z = addExtend c x y
+    carry = testABit z 8
+    overflow = bitNot $ 0x80 .<=. z .&&. z .<. 0x180
 
 subExtend :: (Clock clk)
           => Signal clk Bool
@@ -125,10 +127,12 @@ subCarry :: (Clock clk)
          => Signal clk Bool
          -> Signal clk Byte
          -> Signal clk Byte
-         -> (Signal clk Bool, Signal clk Byte)
-subCarry c x y = (testABit z 8, unsigned z)
+         -> (Signal clk Bool, Signal clk Bool, Signal clk Byte)
+subCarry c x y = (carry, overflow, unsigned z)
   where
     z = subExtend c x y
+    carry = testABit z 8
+    overflow = -128 .<=. z .&&. z .<. 128
 
 cpu :: (Clock clk) => CPUIn clk -> (CPUOut clk, CPUDebug clk)
 cpu CPUIn{..} = runRTL $ do
@@ -181,7 +185,7 @@ cpu CPUIn{..} = runRTL $ do
 
     let setZN v = do
             fZ := v .==. 0
-            fN := v .>=. 0x80
+            fN := v `testABit` 7
     let setA v = do
             setZN v
             rA := v
@@ -211,16 +215,29 @@ cpu CPUIn{..} = runRTL $ do
 
         aluA f = aluA' (\a v -> return $ f a v)
 
-    let adc a v = do
-            let (c', v') = addCarry (reg fC) a v
+    let adc a z = do
+            let (c', v', z') = addCarry (reg fC) a z
             fC := c'
-            fV := v' `testABit` 7
-            return v'
-        sbc a v = do
-            let (c', v') = subCarry (reg fC) a v
+            fV := v'
+            return z'
+        sbc a z = do
+            let (c', v', z') = subCarry (reg fC) a z
             fC := c'
-            fV := bitNot $ v' `testABit` 7
-            return v'
+            fV := v'
+            return z'
+
+        asl z = do
+            fC := z `testABit` 7
+            setA $ z `shiftL` 1
+        lsr z = do
+            fC := z `testABit` 0
+            setA $ z `shiftR` 1
+        rol z = do
+            fC := z `testABit` 7
+            setA $ z `shiftL` 1 .|. unsigned (reg fC)
+        ror z = do
+            fC := z `testABit` 0
+            setA $ z `shiftR` 1 .|. (unsigned (reg fC) `shiftR` 7)
 
         cmp x y = do
             fC := x .>=. y
@@ -415,14 +432,38 @@ cpu CPUIn{..} = runRTL $ do
         op CLD = Op 2 $ Opcode0 $ fD := low
         op SED = Op 2 $ Opcode0 $ fD := high
 
-        -- TODO: flags
-        op ASL_A = Op 2 $ Opcode0 $ do
-            fC := reg rA .>=. 0x80
-            setA $ reg rA `shiftL` 1
+        op BIT_ZP = Op 3 $ OnZP id $ ReadDirect . const $ \v -> do
+            fZ := v .&. reg rA .==. 0
+            fV := v `testABit` 6
+            fN := v `testABit` 7
+        op BIT_Abs = Op 4 $ OnAddr id $ ReadDirect . const $ \v -> do
+            fZ := v .&. reg rA .==. 0
+            fV := v `testABit` 6
+            fN := v `testABit` 7
 
-        -- TODO: flags
-        op LSR_A = Op 2 $ Opcode0 $ do
-            setA $ reg rA `rotateR` 1
+        op ASL_A = Op 2 $ Opcode0 $ asl (reg rA)
+        op ASL_ZP = Op 5 $ OnZP id $ ReadDirect . const $ asl
+        op ASL_ZP_X = Op 6 $ OnZP (+ reg rX) $ ReadDirect . const $ asl
+        op ASL_Abs = Op 6 $ OnAddr id $ ReadDirect . const $ asl
+        op ASL_Abs_X = Op 7 $ OnAddr (+ unsigned (reg rX)) $ ReadDirect . const $ asl
+
+        op LSR_A = Op 2 $ Opcode0 $ lsr (reg rA)
+        op LSR_ZP = Op 5 $ OnZP id $ ReadDirect . const $ lsr
+        op LSR_ZP_X = Op 6 $ OnZP (+ reg rX) $ ReadDirect . const $ lsr
+        op LSR_Abs = Op 6 $ OnAddr id $ ReadDirect . const $ lsr
+        op LSR_Abs_X = Op 7 $ OnAddr (+ unsigned (reg rX)) $ ReadDirect . const $ lsr
+
+        op ROL_A = Op 2 $ Opcode0 $ rol (reg rA)
+        op ROL_ZP = Op 5 $ OnZP id $ ReadDirect . const $ rol
+        op ROL_ZP_X = Op 6 $ OnZP (+ reg rX) $ ReadDirect . const $ rol
+        op ROL_Abs = Op 6 $ OnAddr id $ ReadDirect . const $ rol
+        op ROL_Abs_X = Op 7 $ OnAddr (+ unsigned (reg rX)) $ ReadDirect . const $ rol
+
+        op ROR_A = Op 2 $ Opcode0 $ ror (reg rA)
+        op ROR_ZP = Op 5 $ OnZP id $ ReadDirect . const $ ror
+        op ROR_ZP_X = Op 6 $ OnZP (+ reg rX) $ ReadDirect . const $ ror
+        op ROR_Abs = Op 6 $ OnAddr id $ ReadDirect . const $ ror
+        op ROR_Abs_X = Op 7 $ OnAddr (+ unsigned (reg rX)) $ ReadDirect . const $ ror
 
         op JMP_Abs = Op 3 $ Opcode2 $ \addr -> do
             rPC := addr
@@ -453,10 +494,16 @@ cpu CPUIn{..} = runRTL $ do
             rSP := reg rSP - 1
         op PLP = Op 4 $ PopByte setFlags
 
-        op BEQ = branch (reg fZ)
         op BNE = branch (bitNot $ reg fZ)
-        op BCS = branch (reg fC)
+        op BEQ = branch (reg fZ)
         op BCC = branch (bitNot $ reg fC)
+        op BCS = branch (reg fC)
+        op BVC = branch (bitNot $ reg fV)
+        op BVS = branch (reg fV)
+        op BPL = branch (bitNot $ reg fN)
+        op BMI = branch (reg fN)
+
+        op NOP = Op 2 $ Opcode0 $ return ()
 
         op _ = Jam
 
@@ -594,7 +641,7 @@ cpu CPUIn{..} = runRTL $ do
 
     -- Debug view
     let cpuState = reg s
-        cpuOp = reg rOp
+        cpuOp = var rOp
         cpuArgBuf = reg rArgBuf
     let cpuA = reg rA
         cpuX = reg rX
