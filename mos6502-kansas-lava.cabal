@@ -18,6 +18,8 @@ library
         MOS6502.Types
         MOS6502.CPU
   other-modules:
+        MOS6502.ALU
+        MOS6502.CPU2
         MOS6502.Utils
         MOS6502.Opcodes
 
@@ -28,7 +30,7 @@ library
         bimap
   default-language:    Haskell2010
   other-extensions:    ScopedTypeVariables, RecordWildCards, FlexibleInstances, TypeFamilies, NoMonomorphismRestriction
-  Ghc-Options:         -Werror
+  Ghc-Options:         
                        -fwarn-unused-imports -fwarn-unused-matches
                        -fwarn-unused-binds -fwarn-missing-signatures
 
@@ -50,7 +52,7 @@ executable mos6502-kansas-lava
         gtk
   default-language:    Haskell2010
   other-extensions:    ScopedTypeVariables, RecordWildCards, FlexibleInstances, TypeFamilies, NoMonomorphismRestriction
-  Ghc-Options:         -Werror
+  Ghc-Options:         
                        -fwarn-unused-imports -fwarn-unused-matches
                        -fwarn-unused-binds -fwarn-missing-signatures
                        -threaded
