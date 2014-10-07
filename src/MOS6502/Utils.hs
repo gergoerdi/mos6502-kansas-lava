@@ -10,3 +10,13 @@ switch sig f =
       | x <- [minBound..maxBound]
       , let act = f x
       ]
+
+elemS' :: (Clock clk, Rep a, Eq a) => Signal clk a -> [Signal clk a] -> Signal clk Bool
+sig `elemS'` sigs = foldr (\x b -> sig .==. x .||. b) low sigs
+
+elemS :: (Clock clk, Rep a, Eq a) => Signal clk a -> [a] -> Signal clk Bool
+sig `elemS` xs = sig `elemS'` map pureS xs
+
+switchS :: (Clock clk, Rep a, Eq a, Enum a, Bounded a)
+        => Signal clk a -> (a -> Signal clk b) -> Signal clk b
+switchS sig f = undefined

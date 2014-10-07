@@ -1,6 +1,6 @@
 {-# LANGUAGE ScopedTypeVariables, TypeFamilies #-}
 {-# LANGUAGE RecordWildCards #-}
-module MOS6502.Opcodes (Opcode(..), AOperand(..)) where
+module MOS6502.Opcodes (Opcode(..)) where
 
 import MOS6502.Types
 
@@ -190,16 +190,6 @@ data Opcode = LDA_Imm
             | NOP
             | BRK
             deriving (Eq, Ord, Bounded, Enum)
-
-data AOperand = Imm
-              | ZP
-              | ZP_X
-              | Abs
-              | Abs_X
-              | Abs_Y
-              | Ind_X
-              | Ind_Y
-              deriving (Eq, Ord, Bounded, Enum)
 
 opcodes :: Bimap Opcode Byte
 opcodes = Bimap.fromList

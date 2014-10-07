@@ -19,7 +19,6 @@ library
         MOS6502.CPU
   other-modules:
         MOS6502.ALU
-        MOS6502.CPU2
         MOS6502.Utils
         MOS6502.Opcodes
 

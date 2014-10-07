@@ -4,6 +4,7 @@
 module MOS6502.ALU where
 
 import MOS6502.Types
+import MOS6502.Utils
 
 import Language.KansasLava
 import Data.Sized.Unsigned
@@ -14,20 +15,59 @@ data ALUIn clk = ALUIn { aluInC :: Signal clk Bool
                        , aluInD :: Signal clk Bool
                        }
 
-data ALUOut clk = ALUOut{ aluOutC :: Signal clk Bool
+data ALUOut clk = ALUOut{ aluOutC :: Signal clk (Enabled Bool)
                         , aluOutZ :: Signal clk Bool
                         , aluOutN :: Signal clk Bool
-                        , aluOutV :: Signal clk Bool
+                        , aluOutV :: Signal clk (Enabled Bool)
                         }
 
-data BinOp = Or
-           | And
-           | XOr
-           | Add
-           | Sub
-           | Copy
+data BinAddr = Indirect_X
+             | ZP
+             | Imm
+             | Absolute
+             | Indirect_Y
+             | ZP_X
+             | Absolute_Y
+             | Absolute_X
            deriving (Show, Eq, Enum, Bounded)
-type BinOpSize = X6
+type BinAddrSize = X8
+
+instance Rep BinAddr where
+    type W BinAddr = X3 -- W BinAddrSize
+    newtype X BinAddr = XBinAddr{ unXBinAddr :: Maybe BinAddr }
+
+    unX = unXBinAddr
+    optX = XBinAddr
+    toRep s = toRep . optX $ s'
+      where
+        s' :: Maybe BinAddrSize
+        s' = fmap (fromIntegral . fromEnum) $ unX s
+    fromRep rep = optX $ fmap (toEnum . fromIntegral . toInteger) $ unX x
+      where
+        x :: X BinAddrSize
+        x = sizedFromRepToIntegral rep
+
+    repType _ = repType (Witness :: Witness BinAddrSize)
+
+binIsLength2 :: (Clock clk) => Signal clk BinAddr -> Signal clk Bool
+binIsLength2 addr = addr `elemS` [Imm, ZP, ZP_X]
+
+binIsDirect :: (Clock clk) => Signal clk BinAddr -> Signal clk Bool
+binIsDirect addr = addr `elemS` [Absolute, Absolute_X, Absolute_Y]
+
+binIsIndirect :: (Clock clk) => Signal clk BinAddr -> Signal clk Bool
+binIsIndirect addr = addr `elemS` [Indirect_X, Indirect_Y]
+
+data BinOp = ORA
+           | AND
+           | EOR
+           | ADC
+           | STA
+           | LDA
+           | CMP
+           | SBC
+           deriving (Show, Eq, Enum, Bounded)
+type BinOpSize = X8
 
 instance Rep BinOp where
     type W BinOp = X3 -- W BinOpSize
@@ -46,6 +86,51 @@ instance Rep BinOp where
 
     repType _ = repType (Witness :: Witness BinOpSize)
 
+
+binaryALU :: forall clk. (Clock clk)
+          => Signal clk BinOp
+          -> ALUIn clk -> Signal clk Byte -> Signal clk Byte
+          -> (ALUOut clk, Signal clk Byte)
+binaryALU op ALUIn{..} arg1 arg2 = (ALUOut{..}, result)
+  where
+    (result, aluOutC, aluOutV) = unpack $ ops .!. bitwise op
+    aluOutZ = result .==. 0
+    aluOutN = result `testABit` 7
+
+    ops :: Signal clk (Matrix BinOpSize (Byte, Enabled Bool, Enabled Bool))
+    ops = pack $ matrix $ map pack $
+          [ oraS
+          , andS
+          , eorS
+          , adcS
+          , staS
+          , ldaS
+          , cmpS
+          , sbcS
+          ]
+
+    logicS f = (z, disabledS, disabledS)
+      where
+        z = f arg1 arg2
+
+    oraS = logicS (.|.)
+    andS = logicS (.&.)
+    eorS = logicS xor
+    adcS = (z, enabledS c, enabledS v)
+      where
+        (c, v, z) = addCarry aluInC arg1 arg2
+    sbcS = (z, enabledS c, enabledS v)
+      where
+        (c, v, z) = sub
+    staS = logicS (\x _ -> x)
+    ldaS = logicS (\_ y -> y)
+    cmpS = (z, enabledS c, disabledS)
+      where
+        (c, _v, z) = sub
+
+    sub = subCarry aluInC arg1 arg2
+
+{-
 data UnOp = Inc
           | Dec
           | ShiftL
@@ -71,77 +156,6 @@ instance Rep UnOp where
         x = sizedFromRepToIntegral rep
 
     repType _ = repType (Witness :: Witness UnOpSize)
-
-addExtend :: (Clock clk)
-          => Signal clk Bool
-          -> Signal clk Byte
-          -> Signal clk Byte
-          -> Signal clk U9
-addExtend c x y = unsigned x + unsigned y + unsigned c
-
-addCarry :: (Clock clk)
-         => Signal clk Bool
-         -> Signal clk Byte
-         -> Signal clk Byte
-         -> (Signal clk Bool, Signal clk Bool, Signal clk Byte)
-addCarry c x y = (carry, overflow, unsigned z)
-  where
-    z = addExtend c x y
-    carry = testABit z 8
-    overflow = bitNot $ 0x80 .<=. z .&&. z .<. 0x180
-
-subExtend :: (Clock clk)
-          => Signal clk Bool
-          -> Signal clk Byte
-          -> Signal clk Byte
-          -> Signal clk U9
-subExtend c x y = unsigned x - unsigned y - unsigned (bitNot c)
-
-subCarry :: (Clock clk)
-         => Signal clk Bool
-         -> Signal clk Byte
-         -> Signal clk Byte
-         -> (Signal clk Bool, Signal clk Bool, Signal clk Byte)
-subCarry c x y = (carry, overflow, unsigned z)
-  where
-    z = subExtend c x y
-    carry = testABit z 8
-    overflow = -128 .<=. z .&&. z .<. 128
-
-binaryALU :: forall clk. (Clock clk)
-          => Signal clk BinOp
-          -> ALUIn clk -> Signal clk Byte -> Signal clk Byte
-          -> (ALUOut clk, Signal clk Byte)
-binaryALU op ALUIn{..} arg1 arg2 = (ALUOut{..}, result)
-  where
-    (result, aluOutC, aluOutV) = unpack $ ops .!. bitwise op
-    aluOutZ = result .==. 0
-    aluOutN = result `testABit` 7
-
-    ops :: Signal clk (Matrix BinOpSize (Byte, Bool, Bool))
-    ops = pack $ matrix $ map pack $
-          [ orS
-          , andS
-          , xorS
-          , addS
-          , subS
-          , copyS
-          ]
-
-    logicS f = (z, low, low)
-      where
-        z = f arg1 arg2
-
-    orS = logicS (.|.)
-    andS = logicS (.&.)
-    xorS = logicS xor
-    addS = (z, c, v)
-      where
-        (c, v, z) = addCarry aluInC arg1 arg2
-    subS = (z, c, v)
-      where
-        (c, v, z) = subCarry aluInC arg1 arg2
-    copyS = logicS (\_x y -> y)
 
 unaryALU :: forall clk. (Clock clk)
          => Signal clk UnOp
@@ -180,3 +194,41 @@ cmp x y = (c, z, n)
     c = x .>=. y
     z = x .==. y
     n = (x - y) `testABit` 7
+-}
+
+
+addExtend :: (Clock clk)
+          => Signal clk Bool
+          -> Signal clk Byte
+          -> Signal clk Byte
+          -> Signal clk U9
+addExtend c x y = unsigned x + unsigned y + unsigned c
+
+addCarry :: (Clock clk)
+         => Signal clk Bool
+         -> Signal clk Byte
+         -> Signal clk Byte
+         -> (Signal clk Bool, Signal clk Bool, Signal clk Byte)
+addCarry c x y = (carry, overflow, unsigned z)
+  where
+    z = addExtend c x y
+    carry = testABit z 8
+    overflow = bitNot $ 0x80 .<=. z .&&. z .<. 0x180
+
+subExtend :: (Clock clk)
+          => Signal clk Bool
+          -> Signal clk Byte
+          -> Signal clk Byte
+          -> Signal clk U9
+subExtend c x y = unsigned x - unsigned y - unsigned (bitNot c)
+
+subCarry :: (Clock clk)
+         => Signal clk Bool
+         -> Signal clk Byte
+         -> Signal clk Byte
+         -> (Signal clk Bool, Signal clk Bool, Signal clk Byte)
+subCarry c x y = (carry, overflow, unsigned z)
+  where
+    z = subExtend c x y
+    carry = testABit z 8
+    overflow = -128 .<=. z .&&. z .<. 128
