@@ -15,6 +15,7 @@ import Data.Sized.Matrix
 import qualified Data.Sized.Matrix as Matrix
 import Data.Bits
 import Control.Monad ((<=<), void)
+import Data.Tuple (swap)
 
 data CPUIn clk = CPUIn
     { cpuMemR :: Signal clk Byte
@@ -41,7 +42,7 @@ data CPUDebug clk = CPUDebug
     , cpuP :: Signal clk Byte
     , cpuSP :: Signal clk Byte
     , cpuPC :: Signal clk Addr
-    , cpuOp :: Signal clk Byte
+    , cpuOp :: Signal clk (U3, U3, U2)
     }
 
 data State = Halt
@@ -91,8 +92,8 @@ cpu CPUIn{..} = runRTL $ do
     -- State
     s <- newReg Init
     rOp <- newReg 0x00
-    let (opAAA, opBBBCC) = unappendS (var rOp) :: (Signal clk U3, Signal clk U5)
-        (opBBB, opCC) = unappendS opBBBCC :: (Signal clk U3, Signal clk U2)
+    let (opAAA, opBBBCC) = swap . unappendS $ var rOp :: (Signal clk U3, Signal clk U5)
+        (opBBB, opCC) = swap . unappendS $ opBBBCC :: (Signal clk U3, Signal clk U2)
 
     rArgBuf <- newReg 0x00
     let argByte = cpuMemR
@@ -139,8 +140,8 @@ cpu CPUIn{..} = runRTL $ do
     rNextA <- newReg 0x0000
     rNextW <- newReg Nothing
 
-    let binOp = bitwise opBBB
-        binAddr = bitwise opAAA
+    let binOp = bitwise opAAA
+        binAddr = bitwise opBBB
     commitBinALU <- do
         let aluInC = reg fC
             aluInD = reg fD
@@ -223,7 +224,7 @@ cpu CPUIn{..} = runRTL $ do
                   rNextA := switchS binAddr $ \addr -> case addr of
                       Indirect_X -> argWord
                       Indirect_Y -> argWord + unsigned (reg rY)
-                      _ -> 0xDEAD
+                      _ -> undefinedS
                   CASE [ IF (binOp .==. pureS STA) $ do
                               rNextW := enabledS (reg rA)
                               s := pureS WaitWrite
@@ -253,7 +254,7 @@ cpu CPUIn{..} = runRTL $ do
 
     -- Debug view
     let cpuState = reg s
-        cpuOp = var rOp
+        cpuOp = pack (opAAA, opBBB, opCC)
         cpuArgBuf = reg rArgBuf
     let cpuA = reg rA
         cpuX = reg rX

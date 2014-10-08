@@ -46,7 +46,7 @@ demo = do
 -}
 
 -- demo' :: IO [Matrix FBAddr U4]
-testBench :: IO (Signal CLK (Byte, State, (Addr, Enabled Byte, Byte)))
+testBench :: IO (Signal CLK ((Addr, (U3, U3, U2), State), (Addr, Enabled Byte, Byte)))
 testBench = bench . programToROM 0xF000 <$> BS.readFile fileName
   where
     fileName = "example/rle.obj"
@@ -69,9 +69,9 @@ benchVideo romContents = map (fmap $ fromMaybe 0) $ memToMatrix vram
   where
     (vram, _, _, _) = benchCircuit romContents
 
-bench :: (Addr -> Byte) -> Signal CLK (Byte, State, (Addr, Enabled Byte, Byte))
+bench :: (Addr -> Byte) -> Signal CLK ((Addr, (U3, U3, U2), State), (Addr, Enabled Byte, Byte))
 bench romContents = case benchCircuit romContents of
-    (_, CPUIn{..}, CPUOut{..}, CPUDebug{..}) -> pack (cpuOp, cpuState, pack (cpuMemA, cpuMemW, cpuMemR))
+    (_, CPUIn{..}, CPUOut{..}, CPUDebug{..}) -> pack (pack (cpuPC, cpuOp, cpuState), pack (cpuMemA, cpuMemW, cpuMemR))
 
 benchCircuit :: (Addr -> Byte) -> (Signal CLK (FBAddr -> U4), CPUIn CLK, CPUOut CLK, CPUDebug CLK)
 benchCircuit romContents = (vram, cpuIn, cpuOut, cpuDebug)
