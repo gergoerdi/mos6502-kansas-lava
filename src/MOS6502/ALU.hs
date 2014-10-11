@@ -130,15 +130,16 @@ binaryALU op ALUIn{..} arg1 arg2 = (ALUOut{..}, result)
 
     sub = subCarry aluInC arg1 arg2
 
-{-
-data UnOp = Inc
-          | Dec
-          | ShiftL
-          | ShiftR
-          | RotateL
-          | RotateR
+data UnOp = ASL
+          | ROL
+          | LSR
+          | ROR
+          | STX
+          | LDX
+          | DEC
+          | INC
           deriving (Show, Eq, Enum, Bounded)
-type UnOpSize = X6
+type UnOpSize = X8
 
 instance Rep UnOp where
     type W UnOp = X3 -- W UnOpSize
@@ -164,38 +165,30 @@ unaryALU :: forall clk. (Clock clk)
 unaryALU op ALUIn{..} arg1 = (ALUOut{..}, result)
   where
     (result, aluOutC) = unpack $ ops .!. bitwise op
-    aluOutV = low
+    aluOutV = disabledS
     aluOutZ = result .==. 0
     aluOutN = result `testABit` 7
 
-    ops :: Signal clk (Matrix UnOpSize (Byte, Bool))
+    ops :: Signal clk (Matrix UnOpSize (Byte, Enabled Bool))
     ops = pack $ matrix $ map pack $
-          [ incS
+          [ aslS
+          , rolS
+          , lsrS
+          , rorS
+          , stxS
+          , ldxS
           , decS
-          , shiftLS
-          , shiftRS
-          , rotateLS
-          , rotateRS
+          , incS
           ]
 
-    incS = (arg1 + 1, low)
-    decS = (arg1 - 1, low)
-    shiftLS = (arg1 `shiftL` 1, arg1 `testABit` 7)
-    shiftRS = (arg1 `shiftR` 1, arg1 `testABit` 0)
-    rotateLS = (arg1 `shiftL` 1 .|. unsigned aluInC, arg1 `testABit` 7)
-    rotateRS = (arg1 `shiftR` 1 .|. unsigned aluInC `shiftL` 7, arg1 `testABit` 0)
-
-cmp :: (Clock clk)
-    => Signal clk Byte
-    -> Signal clk Byte
-    -> (Signal clk Bool, Signal clk Bool, Signal clk Bool)
-cmp x y = (c, z, n)
-  where
-    c = x .>=. y
-    z = x .==. y
-    n = (x - y) `testABit` 7
--}
-
+    aslS = (arg1 `shiftL` 1, enabledS $ arg1 `testABit` 7)
+    rolS = (arg1 `shiftL` 1 .|. unsigned aluInC, enabledS $ arg1 `testABit` 7)
+    lsrS = (arg1 `shiftR` 1, enabledS $ arg1 `testABit` 0)
+    rorS = (arg1 `shiftR` 1 .|. unsigned aluInC `shiftL` 7, enabledS $ arg1 `testABit` 7)
+    stxS = (arg1, disabledS)
+    ldxS = (arg1, disabledS)
+    decS = (arg1 - 1, disabledS)
+    incS = (arg1 + 1, disabledS)
 
 addExtend :: (Clock clk)
           => Signal clk Bool
