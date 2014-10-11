@@ -218,6 +218,14 @@ unaryALU op ALUIn{..} arg1 = (ALUOut{..}, result)
     decS = (arg1 - 1, disabledS)
     incS = (arg1 + 1, disabledS)
 
+cmpALU :: forall clk. (Clock clk)
+       => Signal clk Byte -> Signal clk Byte
+       -> (ALUOut clk, Signal clk Byte)
+cmpALU arg1 arg2 = (ALUOut{..}, arg1 - arg2)
+  where
+    aluOutC = enabledS $ arg1 .>=. arg2
+    aluOutV = disabledS
+
 addExtend :: (Clock clk)
           => Signal clk Bool
           -> Signal clk Byte

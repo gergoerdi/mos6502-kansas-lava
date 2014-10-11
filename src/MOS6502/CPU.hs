@@ -1,13 +1,14 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE QuasiQuotes #-}
 module MOS6502.CPU where
 
-import MOS6502.Opcodes
 import MOS6502.Types
 import MOS6502.Utils
 import MOS6502.ALU
 
+import Language.Literals.Binary
 import Language.KansasLava
 import Data.Sized.Ix
 import Data.Sized.Unsigned
@@ -42,7 +43,8 @@ data CPUDebug clk = CPUDebug
     , cpuP :: Signal clk Byte
     , cpuSP :: Signal clk Byte
     , cpuPC :: Signal clk Addr
-    , cpuOp :: Signal clk (U3, U3, U2)
+    , cpuOp :: Signal clk Byte
+    , cpuDecoded :: Decoded clk
     }
 
 data State = Halt
@@ -87,14 +89,172 @@ byteToBits :: (Clock clk)
            -> Matrix X8 (Signal clk Bool)
 byteToBits = unpackMatrix . bitwise
 
+data Addressing clk = Addressing{ addrNone :: Signal clk Bool
+                                , addrImm :: Signal clk Bool
+                                , addrZP :: Signal clk Bool
+                                , addrPreAddX :: Signal clk Bool
+                                , addrPreAddY :: Signal clk Bool
+                                , addrPostAddY :: Signal clk Bool
+                                , addrIndirect :: Signal clk Bool
+                                , addrDirect :: Signal clk Bool
+                                }
+
+data Decoded clk = Decoded{ dAddr :: Addressing clk
+                          , dReadMem :: Signal clk Bool
+                          , dReadA :: Signal clk Bool
+                          , dReadX :: Signal clk Bool
+                          , dReadY :: Signal clk Bool
+                          , dUseBinALU :: Signal clk (Enabled BinOp)
+                          , dUseUnALU :: Signal clk (Enabled UnOp)
+                          , dUseCmpALU :: Signal clk Bool
+                          , dWriteFlags :: Signal clk Bool
+                          , dWriteA :: Signal clk Bool
+                          , dWriteX :: Signal clk Bool
+                          , dWriteY :: Signal clk Bool
+                          , dWriteMem :: Signal clk Bool
+                          , dBranch :: Signal clk (Enabled (U2, Bool))
+                          , dSetFlag :: Signal clk (Enabled X8)
+                          , dClearFlag :: Signal clk (Enabled X8)
+                          }
+
+decode :: forall clk. (Clock clk) => Signal clk Byte -> Decoded clk
+decode op = Decoded{..}
+  where
+    -- (opAAA, opBBBCC) = swap . unappendS $ op :: (Signal clk U3, Signal clk U5)
+    -- (opBBB, opCC) = swap . unappendS $ opBBBCC :: (Signal clk U3, Signal clk U2)
+    (opAAABBB, opCC) = swap . unappendS $ op :: (Signal clk U6, Signal clk U2)
+    (opAAA, opBBB) = swap . unappendS $ opAAABBB :: (Signal clk U3, Signal clk U3)
+    isBinOp = opCC .==. [b|01|]
+    binOp = bitwise opAAA
+    isUnOp = opCC .==. [b|10|] .&&.
+             -- bitNot (unOp `elemS` [Un_Special_1, Un_Special_2]) .&&.
+             bitNot (op .==. 0xEA) -- NOP
+    unOp = bitwise opAAA
+    isShift = isUnOp .&&. unOp `elemS` [ASL, ROL, LSR, ROR, LDX]
+    isUnAcc = isShift .&&. opBBB .==. [b|010|]
+
+    dAddr = Addressing{..}
+      where
+        addrNone = muxN [ (isBinOp, low)
+                        , (isUnOp, isUnAcc)
+                        , (isBranch, low)
+                        , (high, high)
+                        ]
+        addrImm = muxN [ (isBinOp, opBBB .==. [b|010|])
+                       , (isUnOp, opBBB .==. [b|000|])
+                       , (isBranch, high)
+                       , (high, low)
+                       ]
+        addrZP = muxN [ (isBinOp .||. isUnOp, opBBB `elemS` [[b|001|], [b|101|]])
+                      , (high, low)
+                      ]
+
+        useY = isUnOp .&&. opAAA `elemS` [[b|100|], [b|101|]] -- STX/LDX
+        preAddX = muxN [ (isBinOp .||. isUnOp, opBBB `elemS` [[b|000|], [b|101|], [b|111|]])
+                       , (high, low)
+                       ]
+        addrPreAddX = mux useY (preAddX, low)
+        preAddY = isBinOp .&&. opBBB .==. [b|110|]
+        addrPreAddY = mux useY (preAddY, preAddX)
+        addrPostAddY = isBinOp .&&. opBBB .==. [b|100|]
+        addrIndirect = isBinOp .&&. opBBB `elemS` [[b|000|], [b|100|]]
+        addrDirect = muxN [ (isBinOp, opBBB `elemS` [[b|011|], [b|110|], [b|111|]])
+                          , (isUnOp,  opBBB `elemS` [[b|011|], [b|111|]])
+                          , (high, low)
+                          ]
+
+    dUseBinALU = packEnabled isBinOp binOp
+    dUseUnALU = muxN [ (isUnOp, enabledS unOp)
+                     , (op `elemS` [0xE8, 0xC8], enabledS $ pureS INC) -- INX, INY
+                     , (op `elemS` [0xCA, 0x88], enabledS $ pureS DEC) -- DEX, DEY
+                     , (op .==. pureS 0xA8, enabledS $ pureS LDX) -- TAY
+                     , (op .==. pureS 0x98, enabledS $ pureS STX) -- TYA
+                     , (high, disabledS)
+                     ]
+    dUseCmpALU = opCC .==. [b|00|] .&&.
+                 opAAA `elemS` [[b|110|], [b|111|]] .&&.
+                 opBBB `elemS` [[b|000|], [b|001|], [b|011|]]
+
+    dReadA = muxN [ (isBinOp, binOp ./=. pureS LDA)
+                  , (isUnOp, isUnAcc)
+                  , (op .==. pureS 0xA8, high) -- TAY
+                  , (high, low)
+                  ]
+    dReadX = muxN [ (isBinOp, low)
+                  , (isUnOp, unOp .==. pureS STX)
+                  , (op `elemS` [0xE8, 0xCA], high) -- INX, DEX
+                  , (dUseCmpALU, opAAA .==. [b|111|])
+                  , (high, low)
+                  ]
+    dReadY = muxN [ (isBinOp, low)
+                  , (isUnOp, low)
+                  , (op `elemS` [0xC8, 0x88], high) -- INY, DEY
+                  , (op .==. pureS 0x98, high) -- TYA
+                  , (dUseCmpALU, opAAA .==. [b|110|])
+                  , (high, low)
+                  ]
+    dReadMem = muxN [ (isBinOp, bitNot dReadA)
+                    , (isUnOp, bitNot $ dReadA .||. dReadX)
+                    , (high, low)
+                    ]
+
+    dWriteA = muxN [ (isBinOp, binOp ./=. pureS STA)
+                   , (isUnOp, isUnAcc)
+                   , (op .==. pureS 0x98, high) -- TYA
+                   , (high, low)
+                   ]
+    dWriteX = muxN [ (isBinOp, low)
+                   , (isUnOp, unOp .==. pureS LDX)
+                   , (op `elemS` [0xE8, 0xCA], high) -- INX, DEX
+                   , (high, low)
+                   ]
+    dWriteY = muxN [ (isBinOp, low)
+                   , (isUnOp, low)
+                   , (op `elemS` [0xC8, 0x88], high) -- INY, DEY
+                   , (op .==. pureS 0xA8, high) -- TAY
+                   , (high, low)
+                   ]
+    dWriteMem = muxN [ (isBinOp, binOp .==. pureS STA)
+                     , (isUnOp, unOp ./=. pureS LDX .&&. bitNot isUnAcc)
+                     , (high, low)
+                     ]
+    dWriteFlags = muxN [ (isBinOp, binOp ./=. pureS STA)
+                       , (isUnOp, unOp ./=. pureS STX)
+                       , (op `elemS` [0xE8, 0xC8], high) -- INX, INY
+                       , (op `elemS` [0xCA, 0x88], high) -- DEX, DEY
+                       , (high, low)
+                       ]
+
+    isBranch = opCC .==. [b|00|] .&&. opBBB .==. [b|100|]
+    dBranch = packEnabled isBranch $ pack (selector, targetValue)
+      where
+        selector = unsigned $ opAAA `shiftR` 1
+        targetValue = opAAA `testABit` 0
+
+    isChangeFlag = opBBB .==. [b|110|] .&&. opCC .==. [b|00|] .&&. opAAA ./=. [b|100|]
+    setFlag = opAAA `elemS` [[b|001|], [b|011|], [b|111|]]
+    clearFlag = bitNot setFlag
+    flag = switchS opAAA [ ([b|000|], 0) -- C
+                         , ([b|001|], 0) -- C
+                         , ([b|010|], 2) -- I
+                         , ([b|011|], 2) -- I
+                         , ([b|101|], 6) -- V
+                         , ([b|110|], 3) -- D
+                         , ([b|111|], 3) -- D
+                         ]
+    dSetFlag = packEnabled (isChangeFlag .&&. setFlag) flag
+    dClearFlag = packEnabled (isChangeFlag .&&. clearFlag) flag
+
 cpu :: forall clk. (Clock clk) => CPUIn clk -> (CPUOut clk, CPUDebug clk)
 cpu CPUIn{..} = runRTL $ do
     -- State
     s <- newReg Init
     rOp <- newReg 0x00
-    let op = var rOp
-        (opAAA, opBBBCC) = swap . unappendS $ op :: (Signal clk U3, Signal clk U5)
-        (opBBB, opCC) = swap . unappendS $ opBBBCC :: (Signal clk U3, Signal clk U2)
+    let decoded@Decoded{..} = decode (var rOp)
+        Addressing{..} = dAddr
+        size2 = addrImm .||. addrZP
+        size3 = addrDirect .||. addrIndirect
+        size1 = addrNone -- bitNot $ size2 .||. size3
 
     rArgBuf <- newReg 0x00
     let argByte = cpuMemR
@@ -145,47 +305,79 @@ cpu CPUIn{..} = runRTL $ do
     rNextW <- newReg Nothing
 
     let aluIn = ALUIn{ aluInC = reg fC, aluInD = reg fD }
-        commitALUFlags ALUOut{..} w = do
-            CASE [ match aluOutC (fC :=) ]
-            CASE [ match aluOutV (fV :=) ]
-            fZ := w .==. 0
-            fN := w `testABit` 7
 
-    let binOp = bitwise opAAA
-        binAddr = bitwise opBBB
-    commitBinALU <- do
-        let (aluOut, a') = binaryALU binOp aluIn (reg rA) argByte
-        return $ do
-            commitALUFlags aluOut a'
-            rA := a'
-
-    let unOp = muxN [ (op .==. 0xE8, pureS INC) -- INX
-                    , (op .==. 0xC8, pureS INC) -- INY
-                    , (op .==. 0xCA, pureS DEC) -- DEX
-                    , (op .==. 0x88, pureS DEC) -- DEY
-                    , (high, bitwise opAAA) ]
-        unAddr = bitwise opBBB
-        unOffset = mux (unOp `elemS` [STX, LDX]) (reg rX, reg rY)
-        unArg = muxN [ (unAddr .==. pureS Un_A,
-                          muxN [ (op .==. 0xE8, reg rX) -- INX
-                               , (op .==. 0xC8, reg rY) -- INY
-                               , (op .==. 0xCA, reg rX) -- DEX
-                               , (op .==. 0x88, reg rY) -- DEY
-                               , (op .==. 0xa8, reg rA) -- TAY
-                               , (op .==. 0x98, reg rY) -- TYA
-                               ])
-                     , (opBBB .==. 0x6, reg rY) -- TYA
-                     , (unOp .==. pureS STX, reg rX)
-                     , (high, argByte)
+    let unArg = muxN [ (dReadMem, argByte)
+                     , (dReadA, reg rA)
+                     , (dReadX, reg rX)
+                     , (dReadY, reg rY)
                      ]
-    let (unALUOut, unRes) = unaryALU unOp aluIn unArg
-    let commitUnALU = commitALUFlags unALUOut unRes
-    let commitUnResult = do
-            fZ := unRes .==. 0
-            fN := unRes `testABit` 7
 
-    let branchFlag = branchFlags .!. (unsigned $ opAAA `shiftR` 1)
-        branchCond = branchFlag .==. (opAAA `testABit` 0)
+    let cmpArg = muxN [ (dReadX, reg rX)
+                      , (dReadY, reg rY)
+                      ]
+        (cmpOut, cmpRes) = cmpALU cmpArg argByte
+
+    let (binOut, binRes) = binaryALU (enabledVal dUseBinALU) aluIn (reg rA) argByte
+        (unOut, unRes) = unaryALU (enabledVal dUseUnALU) aluIn unArg
+    let res = muxN [ (isEnabled dUseBinALU, binRes)
+                   , (isEnabled dUseUnALU, unRes)
+                   , (dUseCmpALU, cmpRes)
+                   ]
+
+    let commitALUFlags = do
+            CASE [ IF (isEnabled dUseBinALU) $ commit binOut
+                 , IF (isEnabled dUseUnALU) $ commit unOut
+                 , IF dUseCmpALU $ commit cmpOut
+                 ]
+            fZ := res .==. 0
+            fN := res `testABit` 7
+          where
+            commit ALUOut{..} = do
+                CASE [ match aluOutC (fC :=) ]
+                CASE [ match aluOutV (fV :=) ]
+
+    let addrPreOffset = muxN [ (addrPreAddX, reg rX)
+                             , (addrPreAddY, reg rY)
+                             , (high, 0)
+                             ]
+    let addr1 = muxN [ (addrZP, unsigned $ argByte + addrPreOffset)
+                     , (addrDirect, argWord + unsigned addrPreOffset)
+                     ]
+        run1 = do
+            CASE [ match dBranch $ \branch -> do
+                        let (selector, target) = unpack branch
+                        let branchFlag = branchFlags .!. selector
+                            branchCond = branchFlag .==. target
+                        WHEN branchCond $ do
+                            rPC := reg rPC + signed argByte
+                        s := pureS Fetch1
+                 , IF (addrNone .||. addrImm) $ do
+                        WHEN dWriteFlags $ commitALUFlags
+                        WHEN dWriteA $ rA := res
+                        WHEN dWriteX $ rX := res
+                        WHEN dWriteY $ rY := res
+                        s := pureS Fetch1
+                 , IF dWriteMem $ do
+                        rNextA := addr1
+                        rNextW := enabledS res
+                        s := pureS WaitWrite
+                 , OTHERWISE $ do
+                        rNextA := addr1
+                        s := pureS WaitRead
+                 ]
+
+    let addrPostOffset = muxN [ (addrPostAddY, reg rY)
+                              , (high, 0)
+                              ]
+    let addr2 = argWord + unsigned addrPostOffset
+    let run2 = do
+            rNextA := addr2
+            CASE [ IF dWriteMem $ do
+                        rNextW := enabledS res
+                        s := pureS WaitWrite
+                 , OTHERWISE $ do
+                        s := pureS WaitRead
+                 ]
 
     WHEN (bitNot cpuWait) $
       switch (reg s) $ \state -> case state of
@@ -204,157 +396,30 @@ cpu CPUIn{..} = runRTL $ do
               s := pureS Fetch1
           Fetch1 -> do
               rOp := cpuMemR
-              switch opCC $ \cc -> case cc of
-                  0x0 -> CASE [ IF (opBBB .==. 0x4) $ do -- Branch
-                                     return ()
-                              , OTHERWISE $ do
-                                     CASE [ IF (op `elemS` [0xE8, 0xCA]) $ do -- INX, DEX
-                                                 commitUnResult
-                                                 rX := unRes
-                                                 s := pureS Fetch1
-                                          , IF (op `elemS` [0xC8, 0x88, 0xA8]) $ do -- INY, DEY, TAY
-                                                 commitUnResult
-                                                 rY := unRes
-                                                 s := pureS Fetch1
-                                          , IF (op .==. 0x98) $ do -- TYA
-                                                 commitUnResult
-                                                 rA := unRes
-                                                 s := pureS Fetch1
-                                          ]
-                              ]
-                  0x1 -> return () -- These are all 2- or 3-length instructions
-                  0x2 -> do
-                      CASE [ IF (unAddr .==. pureS Un_A) $ do
-                                  CASE [ IF (unOp .==. pureS INC) $ do -- NOP
-                                              return ()
-                                       , IF (unOp .==. pureS LDX) $ do
-                                              commitUnALU
-                                              rX := unRes
-                                       , OTHERWISE $ do
-                                              commitUnALU
-                                              rA := unRes
-                                       ]
-                           -- , IF (unAddr .==. Un_Special_2)
-                           ]
-                      s := pureS Fetch1
-                  _ -> s := pureS Halt
+              WHEN size1 run1
               rPC := reg rPC + 1
               rNextA := var rPC
               s := pureS Fetch2
           Fetch2 -> do
-              switch opCC $ \cc -> case cc of
-                  0x0 -> CASE [ IF (opBBB .==. 0x4) $ do
-                                     WHEN branchCond $
-                                       rPC := reg rPC + signed argByte
-                                     s := pureS Fetch1
-                              ]
-                  0x1 -> WHEN (binIsLength2 binAddr) $ do
-                      CASE [ IF (binAddr .==. pureS Bin_Imm) $ do
-                                  commitBinALU
-                                  s := pureS Fetch1
-                           , OTHERWISE $ do
-                                  rNextA := unsigned $ switchS binAddr
-                                    [ (Bin_ZP, argByte)
-                                    , (Bin_ZP_X, argByte + reg rX)
-                                    ]
-                                  CASE [ IF (binOp .==. pureS STA) $ do
-                                              rNextW := enabledS (reg rA)
-                                              s := pureS WaitWrite
-                                       , OTHERWISE $ do
-                                              s := pureS WaitRead
-                                       ]
-                           ]
-                  0x2 -> WHEN (unIsLength2 unAddr) $ do
-                      CASE [ IF (unAddr .==. pureS Un_Imm) $ do
-                                  commitUnALU
-                                  rX := unRes
-                                  s := pureS Fetch1
-                           , OTHERWISE $ do
-                                  rNextA := unsigned $ switchS unAddr
-                                    [ (Un_ZP, argByte)
-                                    , (Un_ZP_X, argByte + unOffset)
-                                    ]
-                                  CASE [ IF (unOp .==. pureS STX) $ do
-                                              rNextW := enabledS unRes
-                                              s := pureS WaitWrite
-                                       , OTHERWISE $ do
-                                              s := pureS WaitRead
-                                       ]
-                           ]
-                  _ -> s := pureS Halt
+              WHEN size2 run1
               rPC := reg rPC + 1
               rArgBuf := cpuMemR
               rNextA := var rPC
               s := pureS Fetch3
           Fetch3 -> do
-              switch opCC $ \cc -> case cc of
-                  0x1 -> do
-                      rNextA := switchS binAddr
-                        [ (Bin_Absolute, argWord)
-                        , (Bin_Absolute_X, argWord + unsigned (reg rX))
-                        , (Bin_Absolute_Y, argWord + unsigned (reg rY))
-                        , (Bin_Indirect_X, argWord + unsigned (reg rX))
-                        , (Bin_Indirect_Y, argWord)
-                        ]
-                      CASE [ IF (binIsIndirect binAddr) $ do
-                                  s := pureS Indirect1
-                           , IF (binOp .==. pureS STA) $ do
-                                  rNextW := enabledS (reg rA)
-                                  s := pureS WaitWrite
-                           , OTHERWISE $ do
-                                  s := pureS WaitRead
-                           ]
-                  0x2 -> do
-                      rNextA := switchS unAddr
-                        [ (Un_Absolute, argWord)
-                        , (Un_Absolute_X, argWord + unsigned unOffset)
-                        ]
-                      CASE [ IF (unOp .==. pureS STX) $ do
-                                  rNextW := enabledS unRes
-                                  s := pureS WaitWrite
-                           , OTHERWISE $ do
-                                  s := pureS WaitRead
-                           ]
-                  _ -> do
-                      s := pureS Halt
+              run1
               rPC := reg rPC + 1
               rNextA := var rPC
               s := pureS Fetch1
-          Indirect1 -> switch opCC $ \cc -> case cc of
-              0x1 -> do
-                  rArgBuf := cpuMemR
-                  rNextA := reg rNextA + 1
-                  s := pureS Indirect2
-              _ -> do
-                  s := pureS Halt
-          Indirect2 -> switch opCC $ \cc -> case cc of
-              0x1 -> do
-                  rNextA := switchS binAddr
-                    [ (Bin_Indirect_X, argWord)
-                    , (Bin_Indirect_Y, argWord + unsigned (reg rY))
-                    ]
-                  CASE [ IF (binOp .==. pureS STA) $ do
-                              rNextW := enabledS (reg rA)
-                              s := pureS WaitWrite
-                       , OTHERWISE $ do
-                              s := pureS WaitRead
-                       ]
-              _ -> do
-                  s := pureS Halt
+          Indirect1 -> do
+              rArgBuf := cpuMemR
+              rNextA := reg rNextA + 1
+              s := pureS Indirect2
+          Indirect2 -> do
+              run2
+              s := pureS Halt
           WaitRead -> do
-              switch opCC $ \cc -> case cc of
-                  0x1 -> do
-                      commitBinALU
-                  0x2 -> do
-                      commitUnALU
-                      CASE [ IF (unOp .==. pureS LDX) $ do
-                                  rX := argByte
-                           , OTHERWISE $ do
-                                  rNextW := enabledS argByte
-                                  s := pureS WaitWrite
-                           ]
-                  _ -> do
-                      s := pureS Halt
+              run1
               rNextA := reg rPC
               s := pureS Fetch1
 {-
@@ -375,8 +440,9 @@ cpu CPUIn{..} = runRTL $ do
 
     -- Debug view
     let cpuState = reg s
-        cpuOp = pack (opAAA, opBBB, opCC)
+        cpuOp = var rOp
         cpuArgBuf = reg rArgBuf
+        cpuDecoded = decoded
     let cpuA = reg rA
         cpuX = reg rX
         cpuY = reg rY
