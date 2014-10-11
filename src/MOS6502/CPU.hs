@@ -171,54 +171,62 @@ cpu CPUIn{..} = runRTL $ do
           Fetch1 -> do
               rOp := cpuMemR
               switch opCC $ \cc -> case cc of
-                  0x1 -> do
-                      rPC := reg rPC + 1
-                      rNextA := var rPC
+                  0x1 -> do -- These are all 2- or 3-length instructions
                       s := pureS Fetch2
-
+                  _ -> return ()
+              rPC := reg rPC + 1
+              rNextA := var rPC
               s := pureS Halt
-          Fetch2 -> switch opCC $ \cc -> case cc of
-              0x1 -> do
-                  CASE [ IF (bitNot $ binIsLength2 binAddr) $ do
-                              rArgBuf := cpuMemR
-                              rPC := reg rPC + 1
-                              rNextA := var rPC
-                              s := pureS Fetch3
-                       , IF (binOp .==. pureS STA) $ do
-                              rNextW := enabledS (reg rA)
-                              rNextA := switchS binAddr $ \addr -> case addr of
-                                  ZP -> unsigned argByte
-                                  ZP_X -> unsigned $ argByte + reg rX
-                                  _ -> 0xDEAD
-                              s := pureS WaitWrite
-                       , OTHERWISE $ do
-                              commitBinALU
-                              rPC := reg rPC + 1
-                              rNextA := var rPC
-                              s := pureS Fetch2
-                       ]
-          Fetch3 -> switch opCC $ \cc -> case cc of
-              0x1 -> do
-                  rNextA := switchS binAddr $ \addr -> case addr of
-                      Absolute -> argWord
-                      Absolute_X -> argWord + unsigned (reg rX)
-                      Absolute_Y -> argWord + unsigned (reg rY)
-                      Indirect_X -> argWord + unsigned (reg rX)
-                      Indirect_Y -> argWord
-                      _ -> 0xDEAD
-                  CASE [ IF (binIsIndirect binAddr) $ do
-                              s := pureS Indirect1
-                       , IF (binOp .==. pureS STA) $ do
-                              rNextW := enabledS (reg rA)
-                              s := pureS WaitWrite
-                       , OTHERWISE $ do
-                              s := pureS WaitRead
-                       ]
+          Fetch2 -> do
+              rPC := reg rPC + 1
+              switch opCC $ \cc -> case cc of
+                  0x1 -> WHEN (binIsLength2 binAddr) $ do
+                      CASE [ IF (binOp .==. pureS STA) $ do
+                                  rNextW := enabledS (reg rA)
+                                  rNextA := switchS binAddr $ \addr -> case addr of
+                                      ZP -> unsigned argByte
+                                      ZP_X -> unsigned $ argByte + reg rX
+                                      _ -> undefinedS
+                                  s := pureS WaitWrite
+                           , OTHERWISE $ do
+                                  commitBinALU
+                                  rNextA := var rPC
+                                  s := pureS Fetch1
+                           ]
+                  _ -> s := pureS Halt
+              rArgBuf := cpuMemR
+              rNextA := var rPC
+              s := pureS Fetch3
+          Fetch3 -> do
+              switch opCC $ \cc -> case cc of
+                  0x1 -> do
+                      rNextA := switchS binAddr $ \addr -> case addr of
+                          Absolute -> argWord
+                          Absolute_X -> argWord + unsigned (reg rX)
+                          Absolute_Y -> argWord + unsigned (reg rY)
+                          Indirect_X -> argWord + unsigned (reg rX)
+                          Indirect_Y -> argWord
+                          _ -> undefinedS
+                      CASE [ IF (binIsIndirect binAddr) $ do
+                                  s := pureS Indirect1
+                           , IF (binOp .==. pureS STA) $ do
+                                  rNextW := enabledS (reg rA)
+                                  s := pureS WaitWrite
+                           , OTHERWISE $ do
+                                  s := pureS WaitRead
+                           ]
+                  _ -> do
+                      s := pureS Halt
+              rPC := reg rPC + 1
+              rNextA := var rPC
+              s := pureS Fetch1
           Indirect1 -> switch opCC $ \cc -> case cc of
               0x1 -> do
                   rArgBuf := cpuMemR
                   rNextA := reg rNextA + 1
                   s := pureS Indirect2
+              _ -> do
+                  s := pureS Halt
           Indirect2 -> switch opCC $ \cc -> case cc of
               0x1 -> do
                   rNextA := switchS binAddr $ \addr -> case addr of
@@ -231,11 +239,15 @@ cpu CPUIn{..} = runRTL $ do
                        , OTHERWISE $ do
                               s := pureS WaitRead
                        ]
+              _ -> do
+                  s := pureS Halt
           WaitRead -> switch opCC $ \cc -> case cc of
               0x1 -> do
                   commitBinALU
                   rNextA := reg rPC
                   s := pureS Fetch1
+              _ -> do
+                  s := pureS Halt
 {-
           WaitPushAddr -> do
               rNextA := reg rNextA - 1
