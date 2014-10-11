@@ -4,6 +4,7 @@ module MOS6502.Bench where
 import MOS6502.Types
 import MOS6502.CPU
 import MOS6502.Opcodes
+import MOS6502.ALU
 import MOS6502.Bench.Video (FBAddr)
 -- import MOS6502.Bench.GTK
 
@@ -46,10 +47,23 @@ demo = do
 -}
 
 -- demo' :: IO [Matrix FBAddr U4]
-testBench :: IO (Signal CLK ((Addr, (U3, U3, U2), State), (Addr, Enabled Byte, Byte)))
-testBench = bench . programToROM 0xF000 <$> BS.readFile fileName
+-- testBench :: FilePath -> IO (Signal CLK ((Addr, Byte, State), (Addr, Enabled Byte, Byte)))
+testBench :: FilePath -> IO (Signal CLK ((Addr, Byte, State), (Bool)))
+-- testBench :: FilePath -> IO (Signal CLK ((Byte, State), (Bool, Bool), Bool))
+testBench fileName = bench . programToROM 0xF000 <$> BS.readFile fileName
+  -- where
+    -- fileName = "example/rle.obj"
+    -- fileName = "example/routines.obj"
+    -- fileName = "example/hello.obj"
   where
-    fileName = "example/rle.obj"
+    -- bench romContents = pack (pack (cpuOp, cpuState), pack (addrImm, addrNone), dReadX)
+    -- bench romContents = pack (pack (cpuPC, cpuOp, cpuState), pack (cpuMemA, cpuMemW, cpuMemR))
+    bench romContents = pack (pack (cpuPC, cpuOp, cpuState), addrNone)
+    -- bench romContents = pack (pack (cpuPC, cpuOp, cpuState), dBranch cpuDecoded, cpuP `testABit` 1)
+      where
+        (_, CPUIn{..}, CPUOut{..}, CPUDebug{..}) = benchCircuit romContents
+        Decoded{..} = cpuDecoded
+        Addressing{..} = dAddr
 
 programToROM :: Addr -> BS.ByteString -> (Addr -> Byte)
 programToROM startingAddr bs addr
@@ -68,10 +82,6 @@ benchVideo :: (Addr -> Byte) -> [Matrix FBAddr U4]
 benchVideo romContents = map (fmap $ fromMaybe 0) $ memToMatrix vram
   where
     (vram, _, _, _) = benchCircuit romContents
-
-bench :: (Addr -> Byte) -> Signal CLK ((Addr, (U3, U3, U2), State), (Addr, Enabled Byte, Byte))
-bench romContents = case benchCircuit romContents of
-    (_, CPUIn{..}, CPUOut{..}, CPUDebug{..}) -> pack (pack (cpuPC, cpuOp, cpuState), pack (cpuMemA, cpuMemW, cpuMemR))
 
 benchCircuit :: (Addr -> Byte) -> (Signal CLK (FBAddr -> U4), CPUIn CLK, CPUOut CLK, CPUDebug CLK)
 benchCircuit romContents = (vram, cpuIn, cpuOut, cpuDebug)
