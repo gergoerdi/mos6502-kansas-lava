@@ -16,8 +16,6 @@ data ALUIn clk = ALUIn { aluInC :: Signal clk Bool
                        }
 
 data ALUOut clk = ALUOut{ aluOutC :: Signal clk (Enabled Bool)
-                        , aluOutZ :: Signal clk Bool
-                        , aluOutN :: Signal clk Bool
                         , aluOutV :: Signal clk (Enabled Bool)
                         }
 
@@ -62,9 +60,9 @@ data UnAddr = Un_Imm
             | Un_ZP
             | Un_A
             | Un_Absolute
+            | Un_Special_1
             | Un_ZP_X
-            | Un_UNUSED1
-            | Un_UNUSED2
+            | Un_Special_2
             | Un_Absolute_X
             deriving (Show, Eq, Enum, Bounded)
 type UnAddrSize = X8
@@ -128,8 +126,6 @@ binaryALU :: forall clk. (Clock clk)
 binaryALU op ALUIn{..} arg1 arg2 = (ALUOut{..}, result)
   where
     (result, aluOutC, aluOutV) = unpack $ ops .!. bitwise op
-    aluOutZ = result .==. 0
-    aluOutN = result `testABit` 7
 
     ops :: Signal clk (Matrix BinOpSize (Byte, Enabled Bool, Enabled Bool))
     ops = pack $ matrix $ map pack $
@@ -200,8 +196,6 @@ unaryALU op ALUIn{..} arg1 = (ALUOut{..}, result)
   where
     (result, aluOutC) = unpack $ ops .!. bitwise op
     aluOutV = disabledS
-    aluOutZ = result .==. 0
-    aluOutN = result `testABit` 7
 
     ops :: Signal clk (Matrix UnOpSize (Byte, Enabled Bool))
     ops = pack $ matrix $ map pack $

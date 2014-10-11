@@ -92,7 +92,8 @@ cpu CPUIn{..} = runRTL $ do
     -- State
     s <- newReg Init
     rOp <- newReg 0x00
-    let (opAAA, opBBBCC) = swap . unappendS $ var rOp :: (Signal clk U3, Signal clk U5)
+    let op = var rOp
+        (opAAA, opBBBCC) = swap . unappendS $ op :: (Signal clk U3, Signal clk U5)
         (opBBB, opCC) = swap . unappendS $ opBBBCC :: (Signal clk U3, Signal clk U2)
 
     rArgBuf <- newReg 0x00
@@ -137,32 +138,54 @@ cpu CPUIn{..} = runRTL $ do
             fV := v
             fN := n
 
+        branchFlags :: Signal clk (Matrix U2 Bool)
+        branchFlags = pack . Matrix.fromList . map reg $ [fN, fV, fC, fZ]
+
     rNextA <- newReg 0x0000
     rNextW <- newReg Nothing
 
     let aluIn = ALUIn{ aluInC = reg fC, aluInD = reg fD }
-    let commitALUFlags ALUOut{..} = do
+        commitALUFlags ALUOut{..} w = do
             CASE [ match aluOutC (fC :=) ]
             CASE [ match aluOutV (fV :=) ]
-            fZ := aluOutZ
-            fN := aluOutN
+            fZ := w .==. 0
+            fN := w `testABit` 7
 
     let binOp = bitwise opAAA
         binAddr = bitwise opBBB
     commitBinALU <- do
         let (aluOut, a') = binaryALU binOp aluIn (reg rA) argByte
         return $ do
-            commitALUFlags aluOut
+            commitALUFlags aluOut a'
             rA := a'
 
-    let unOp = bitwise opAAA
+    let unOp = muxN [ (op .==. 0xE8, pureS INC) -- INX
+                    , (op .==. 0xC8, pureS INC) -- INY
+                    , (op .==. 0xCA, pureS DEC) -- DEX
+                    , (op .==. 0x88, pureS DEC) -- DEY
+                    , (high, bitwise opAAA) ]
         unAddr = bitwise opBBB
         unOffset = mux (unOp `elemS` [STX, LDX]) (reg rX, reg rY)
-    let (unALUOut, unRes) = unaryALU unOp aluIn $ muxN
-                            [ (unOp .==. pureS STX, reg rX)
-                            , (unAddr .==. pureS Un_A, reg rA)
-                            , (high, argByte)
-                            ]
+        unArg = muxN [ (unAddr .==. pureS Un_A,
+                          muxN [ (op .==. 0xE8, reg rX) -- INX
+                               , (op .==. 0xC8, reg rY) -- INY
+                               , (op .==. 0xCA, reg rX) -- DEX
+                               , (op .==. 0x88, reg rY) -- DEY
+                               , (op .==. 0xa8, reg rA) -- TAY
+                               , (op .==. 0x98, reg rY) -- TYA
+                               ])
+                     , (opBBB .==. 0x6, reg rY) -- TYA
+                     , (unOp .==. pureS STX, reg rX)
+                     , (high, argByte)
+                     ]
+    let (unALUOut, unRes) = unaryALU unOp aluIn unArg
+    let commitUnALU = commitALUFlags unALUOut unRes
+    let commitUnResult = do
+            fZ := unRes .==. 0
+            fN := unRes `testABit` 7
+
+    let branchFlag = branchFlags .!. (unsigned $ opAAA `shiftR` 1)
+        branchCond = branchFlag .==. (opAAA `testABit` 0)
 
     WHEN (bitNot cpuWait) $
       switch (reg s) $ \state -> case state of
@@ -182,13 +205,36 @@ cpu CPUIn{..} = runRTL $ do
           Fetch1 -> do
               rOp := cpuMemR
               switch opCC $ \cc -> case cc of
+                  0x0 -> CASE [ IF (opBBB .==. 0x4) $ do -- Branch
+                                     return ()
+                              , OTHERWISE $ do
+                                     CASE [ IF (op `elemS` [0xE8, 0xCA]) $ do -- INX, DEX
+                                                 commitUnResult
+                                                 rX := unRes
+                                                 s := pureS Fetch1
+                                          , IF (op `elemS` [0xC8, 0x88, 0xA8]) $ do -- INY, DEY, TAY
+                                                 commitUnResult
+                                                 rY := unRes
+                                                 s := pureS Fetch1
+                                          , IF (op .==. 0x98) $ do -- TYA
+                                                 commitUnResult
+                                                 rA := unRes
+                                                 s := pureS Fetch1
+                                          ]
+                              ]
                   0x1 -> return () -- These are all 2- or 3-length instructions
-                  0x2 -> WHEN (unAddr .==. pureS Un_A) $ do
-                      commitALUFlags unALUOut
-                      CASE [ IF (unOp .==. pureS LDX) $ do
-                                  rX := unRes
-                           , OTHERWISE $ do
-                                  rA := unRes
+                  0x2 -> do
+                      CASE [ IF (unAddr .==. pureS Un_A) $ do
+                                  CASE [ IF (unOp .==. pureS INC) $ do -- NOP
+                                              return ()
+                                       , IF (unOp .==. pureS LDX) $ do
+                                              commitUnALU
+                                              rX := unRes
+                                       , OTHERWISE $ do
+                                              commitUnALU
+                                              rA := unRes
+                                       ]
+                           -- , IF (unAddr .==. Un_Special_2)
                            ]
                       s := pureS Fetch1
                   _ -> s := pureS Halt
@@ -196,8 +242,12 @@ cpu CPUIn{..} = runRTL $ do
               rNextA := var rPC
               s := pureS Fetch2
           Fetch2 -> do
-              rPC := reg rPC + 1
               switch opCC $ \cc -> case cc of
+                  0x0 -> CASE [ IF (opBBB .==. 0x4) $ do
+                                     WHEN branchCond $
+                                       rPC := reg rPC + signed argByte
+                                     s := pureS Fetch1
+                              ]
                   0x1 -> WHEN (binIsLength2 binAddr) $ do
                       CASE [ IF (binAddr .==. pureS Bin_Imm) $ do
                                   commitBinALU
@@ -216,7 +266,7 @@ cpu CPUIn{..} = runRTL $ do
                            ]
                   0x2 -> WHEN (unIsLength2 unAddr) $ do
                       CASE [ IF (unAddr .==. pureS Un_Imm) $ do
-                                  commitALUFlags unALUOut
+                                  commitUnALU
                                   rX := unRes
                                   s := pureS Fetch1
                            , OTHERWISE $ do
@@ -232,6 +282,7 @@ cpu CPUIn{..} = runRTL $ do
                                        ]
                            ]
                   _ -> s := pureS Halt
+              rPC := reg rPC + 1
               rArgBuf := cpuMemR
               rNextA := var rPC
               s := pureS Fetch3
@@ -295,7 +346,7 @@ cpu CPUIn{..} = runRTL $ do
                   0x1 -> do
                       commitBinALU
                   0x2 -> do
-                      commitALUFlags unALUOut
+                      commitUnALU
                       CASE [ IF (unOp .==. pureS LDX) $ do
                                   rX := argByte
                            , OTHERWISE $ do
