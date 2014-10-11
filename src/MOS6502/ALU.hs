@@ -21,14 +21,14 @@ data ALUOut clk = ALUOut{ aluOutC :: Signal clk (Enabled Bool)
                         , aluOutV :: Signal clk (Enabled Bool)
                         }
 
-data BinAddr = Indirect_X
-             | ZP
-             | Imm
-             | Absolute
-             | Indirect_Y
-             | ZP_X
-             | Absolute_Y
-             | Absolute_X
+data BinAddr = Bin_Indirect_X
+             | Bin_ZP
+             | Bin_Imm
+             | Bin_Absolute
+             | Bin_Indirect_Y
+             | Bin_ZP_X
+             | Bin_Absolute_Y
+             | Bin_Absolute_X
            deriving (Show, Eq, Enum, Bounded)
 type BinAddrSize = X8
 
@@ -50,13 +50,47 @@ instance Rep BinAddr where
     repType _ = repType (Witness :: Witness BinAddrSize)
 
 binIsLength2 :: (Clock clk) => Signal clk BinAddr -> Signal clk Bool
-binIsLength2 addr = addr `elemS` [Imm, ZP, ZP_X]
+binIsLength2 addr = addr `elemS` [Bin_Imm, Bin_ZP, Bin_ZP_X]
 
 binIsDirect :: (Clock clk) => Signal clk BinAddr -> Signal clk Bool
-binIsDirect addr = addr `elemS` [Absolute, Absolute_X, Absolute_Y]
+binIsDirect addr = addr `elemS` [Bin_Absolute, Bin_Absolute_X, Bin_Absolute_Y]
 
 binIsIndirect :: (Clock clk) => Signal clk BinAddr -> Signal clk Bool
-binIsIndirect addr = addr `elemS` [Indirect_X, Indirect_Y]
+binIsIndirect addr = addr `elemS` [Bin_Indirect_X, Bin_Indirect_Y]
+
+data UnAddr = Un_Imm
+            | Un_ZP
+            | Un_A
+            | Un_Absolute
+            | Un_ZP_X
+            | Un_UNUSED1
+            | Un_UNUSED2
+            | Un_Absolute_X
+            deriving (Show, Eq, Enum, Bounded)
+type UnAddrSize = X8
+
+instance Rep UnAddr where
+    type W UnAddr = X3 -- W UnAddrSize
+    newtype X UnAddr = XUnAddr{ unXUnAddr :: Maybe UnAddr }
+
+    unX = unXUnAddr
+    optX = XUnAddr
+    toRep s = toRep . optX $ s'
+      where
+        s' :: Maybe UnAddrSize
+        s' = fmap (fromIntegral . fromEnum) $ unX s
+    fromRep rep = optX $ fmap (toEnum . fromIntegral . toInteger) $ unX x
+      where
+        x :: X UnAddrSize
+        x = sizedFromRepToIntegral rep
+
+    repType _ = repType (Witness :: Witness UnAddrSize)
+
+unIsLength2 :: (Clock clk) => Signal clk UnAddr -> Signal clk Bool
+unIsLength2 addr = addr `elemS` [Un_Imm, Un_ZP, Un_ZP_X]
+
+unIsDirect :: (Clock clk) => Signal clk UnAddr -> Signal clk Bool
+unIsDirect addr = addr `elemS` [Un_Absolute, Un_Absolute_X]
 
 data BinOp = ORA
            | AND

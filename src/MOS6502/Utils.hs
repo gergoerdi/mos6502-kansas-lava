@@ -17,6 +17,10 @@ sig `elemS'` sigs = foldr (\x b -> sig .==. x .||. b) low sigs
 elemS :: (Clock clk, Rep a, Eq a) => Signal clk a -> [a] -> Signal clk Bool
 sig `elemS` xs = sig `elemS'` map pureS xs
 
-switchS :: (Clock clk, Rep a, Rep b, Eq a, Enum a, Bounded a)
-        => Signal clk a -> (a -> Signal clk b) -> Signal clk b
-switchS sig f = foldr (\x sig' -> mux (sig ./=. pureS x) (f x, sig')) undefinedS [minBound..maxBound]
+switchS :: (Clock clk, Rep a, Rep b, Eq a)
+        => Signal clk a -> [(a, Signal clk b)] -> Signal clk b
+switchS sig = foldr (\(x,y) sig' -> mux (sig .==. pureS x) (sig', y)) undefinedS
+
+muxN :: (Clock clk, Rep a)
+     => [(Signal clk Bool, Signal clk a)] -> Signal clk a
+muxN = foldr (\(b, y) sig -> mux b (sig, y)) undefinedS
