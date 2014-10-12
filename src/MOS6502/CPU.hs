@@ -97,6 +97,7 @@ data Addressing clk = Addressing{ addrNone :: Signal clk Bool
                                 , addrPostAddY :: Signal clk Bool
                                 , addrIndirect :: Signal clk Bool
                                 , addrDirect :: Signal clk Bool
+                                , addrPop :: Signal clk Bool
                                 }
 
 data Decoded clk = Decoded{ dAddr :: Addressing clk
@@ -107,15 +108,18 @@ data Decoded clk = Decoded{ dAddr :: Addressing clk
                           , dUseBinALU :: Signal clk (Enabled BinOp)
                           , dUseUnALU :: Signal clk (Enabled UnOp)
                           , dUseCmpALU :: Signal clk Bool
-                          , dWriteFlags :: Signal clk Bool
+                          , dUpdateFlags :: Signal clk Bool
                           , dWriteA :: Signal clk Bool
                           , dWriteX :: Signal clk Bool
                           , dWriteY :: Signal clk Bool
                           , dWriteMem :: Signal clk Bool
+                          , dWriteFlags :: Signal clk Bool
                           , dBranch :: Signal clk (Enabled (U2, Bool))
                           , dSetFlag :: Signal clk (Enabled X8)
                           , dClearFlag :: Signal clk (Enabled X8)
                           , dJump :: Signal clk Bool
+                          , dJSR :: Signal clk Bool
+                          , dRTS :: Signal clk Bool
                           }
 
 decode :: forall clk. (Clock clk) => Signal clk Byte -> Decoded clk
@@ -136,7 +140,9 @@ decode op = Decoded{..}
 
     isSTY = opCC .==. [b|00|] .&&. opAAA .==. [b|100|]
     isLDY = opCC .==. [b|00|] .&&. opAAA .==. [b|101|]
+    dJSR = op .==. 0x20
     dJump = op `elemS` [0x4C, 0x6C]
+    dRTS = op .==. 0x60
 
     dAddr = Addressing{..}
       where
@@ -149,7 +155,7 @@ decode op = Decoded{..}
                         ]
         addrImm = muxN [ (isBinOp, opBBB .==. [b|010|])
                        , (isUnOp, opBBB .==. [b|000|])
-                       , (opCC .==. [b|00|], opBBB .==. [b|000|])
+                       , (opCC .==. [b|00|], bitNot dJSR .&&. opBBB .==. [b|000|])
                        , (isBranch .||. dJump, high)
                        , (high, low)
                        ]
@@ -168,8 +174,9 @@ decode op = Decoded{..}
                             , (high, op `elemS` [0x6C]) -- JMP
                             ]
         addrDirect = muxN [ (isBinOp, opBBB `elemS` [[b|011|], [b|110|], [b|111|]])
-                          , (high,  opBBB `elemS` [[b|011|], [b|111|]])
+                          , (high,  dJSR .||. opBBB `elemS` [[b|011|], [b|111|]])
                           ]
+        addrPop = op `elemS` [ 0x68, 0x28 ] -- PLA, PLP
 
     dUseBinALU = packEnabled isBinOp binOp
     dUseUnALU = muxN [ (isUnOp, enabledS unOp)
@@ -211,6 +218,7 @@ decode op = Decoded{..}
     dWriteA = muxN [ (isBinOp, binOp ./=. pureS STA)
                    , (isUnOp, isUnAcc)
                    , (op .==. pureS 0x98, high) -- TYA
+                   , (op .==. pureS 0x68, high) -- PLA
                    , (high, low)
                    ]
     dWriteX = muxN [ (isBinOp, low)
@@ -228,12 +236,14 @@ decode op = Decoded{..}
                      , (isUnOp, unOp ./=. pureS LDX .&&. bitNot isUnAcc)
                      , (high, low)
                      ]
-    dWriteFlags = muxN [ (isBinOp, binOp ./=. pureS STA)
-                       , (isUnOp, unOp ./=. pureS STX)
-                       , (op `elemS` [0xE8, 0xC8], high) -- INX, INY
-                       , (op `elemS` [0xCA, 0x88], high) -- DEX, DEY
-                       , (high, low)
-                       ]
+    dWriteFlags = op .==. 0x28 -- PLP
+
+    dUpdateFlags = muxN [ (isBinOp, binOp ./=. pureS STA)
+                        , (isUnOp, unOp ./=. pureS STX)
+                        , (op `elemS` [0xE8, 0xC8], high) -- INX, INY
+                        , (op `elemS` [0xCA, 0x88], high) -- DEX, DEY
+                        , (high, low)
+                        ]
 
     isBranch = opCC .==. [b|00|] .&&. opBBB .==. [b|100|]
     dBranch = packEnabled isBranch $ pack (selector, targetValue)
@@ -277,8 +287,8 @@ cpu CPUIn{..} = runRTL $ do
     rY <- newReg 0x00
     rSP <- newReg 0xFF
     rPC <- newReg 0x0000 -- To be filled in by Init
-    -- let popTarget = 0x0100 .|. unsigned (reg rSP + 1)
-    --     pushTarget = 0x0100 .|. unsigned (reg rSP)
+    let popTarget = 0x0100 .|. unsigned (reg rSP + 1)
+        pushTarget = 0x0100 .|. unsigned (reg rSP)
 
     -- Flags
     fC <- newReg False
@@ -370,8 +380,12 @@ cpu CPUIn{..} = runRTL $ do
                                     rPC := addr1
                                     s := pureS Fetch1
                              ]
+                 , IF addrPop $ do
+                        rSP := reg rSP + 1
+                        rNextA := popTarget
+                        s := pureS WaitRead
                  , IF (addrNone .||. addrImm) $ do
-                        WHEN dWriteFlags $ commitALUFlags
+                        WHEN dUpdateFlags $ commitALUFlags
                         WHEN dWriteA $ rA := res
                         WHEN dWriteX $ rX := res
                         WHEN dWriteY $ rY := res
@@ -380,6 +394,13 @@ cpu CPUIn{..} = runRTL $ do
                         rNextA := addr1
                         rNextW := enabledS res
                         s := pureS WaitWrite
+                 , IF dJSR $ do
+                        rArgBuf := unsigned (reg rPC)
+                        rSP := reg rSP - 2
+                        rNextA := pushTarget
+                        rNextW := enabledS $ unsigned (reg rPC `shiftR` 8)
+                        rPC := addr1
+                        s := pureS WaitPushAddr
                  , OTHERWISE $ do
                         rNextA := addr1
                         s := pureS WaitRead
@@ -402,7 +423,8 @@ cpu CPUIn{..} = runRTL $ do
                         rNextA := addr2
                         s := pureS WaitRead
                  , OTHERWISE $ do
-                        WHEN dWriteFlags $ commitALUFlags
+                        WHEN dUpdateFlags $ commitALUFlags
+                        WHEN dWriteFlags $ setFlags argByte
                         WHEN dWriteA $ rA := res
                         WHEN dWriteX $ rX := res
                         WHEN dWriteY $ rY := res
@@ -421,13 +443,30 @@ cpu CPUIn{..} = runRTL $ do
               s := pureS FetchVector2
           FetchVector2 -> do
               let pc' = (reg rPC .&. 0xFF) .|. (unsigned cpuMemR `shiftL` 8)
-                  isRTS = op .==. pureS 0x60
-              rPC := mux isRTS (pc', pc' + 1) -- BWAAAAH!
+              rPC := mux dRTS (pc', pc' + 1) -- BWAAAAH!
               rNextA := var rPC
               s := pureS Fetch1
           Fetch1 -> do
               rOp := cpuMemR
-              WHEN size1 run1
+              CASE [ IF (op .==. 0x00) $ do -- TODO: BRK
+                          s := pureS Halt
+                   , IF dRTS $ do
+                          rSP := reg rSP + 2
+                          rNextA := popTarget
+                          s := pureS FetchVector1
+                   , IF (op `elemS` [0x48, 0x08]) $ do -- PHA, PHP
+                          rSP := reg rSP - 1
+                          rNextA := pushTarget
+                          rNextW := enabledS $ mux (op .==. 0x08) (reg rA, flags)
+                          s := pureS WaitWrite
+                   , IF (op `elemS` [0x68, 0x28]) $ do -- PLA, PLP
+                          rSP := reg rSP + 1
+                          rNextA := popTarget
+                          s := pureS WaitRead
+                   , OTHERWISE $ do
+                          WHEN (op .==. 0x00) $ s := pureS Halt
+                          WHEN size1 run1
+                   ]
               rPC := reg rPC + 1
               rNextA := var rPC
               s := pureS Fetch2
@@ -453,12 +492,10 @@ cpu CPUIn{..} = runRTL $ do
               run2
               rNextA := reg rPC
               s := pureS Fetch1
-{-
           WaitPushAddr -> do
               rNextA := reg rNextA - 1
               rNextW := enabledS (reg rArgBuf)
               s := pureS WaitWrite
--}
           WaitWrite -> do
               rNextW := disabledS
               rNextA := reg rPC
