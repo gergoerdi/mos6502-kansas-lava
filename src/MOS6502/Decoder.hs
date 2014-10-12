@@ -81,8 +81,8 @@ decode op = Decoded{..}
                         ]
         addrImm = muxN [ (isBinOp, opBBB .==. [b|010|])
                        , (isUnOp, opBBB .==. [b|000|])
+                       , (isBranch, high)
                        , (opCC .==. [b|00|], bitNot dJSR .&&. opBBB .==. [b|000|])
-                       , (isBranch .||. dJump, high)
                        , (high, low)
                        ]
         addrZP = opBBB `elemS` [[b|001|], [b|101|]]
