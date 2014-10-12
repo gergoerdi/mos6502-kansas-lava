@@ -115,6 +115,7 @@ data Decoded clk = Decoded{ dAddr :: Addressing clk
                           , dBranch :: Signal clk (Enabled (U2, Bool))
                           , dSetFlag :: Signal clk (Enabled X8)
                           , dClearFlag :: Signal clk (Enabled X8)
+                          , dJump :: Signal clk Bool
                           }
 
 decode :: forall clk. (Clock clk) => Signal clk Byte -> Decoded clk
@@ -133,34 +134,41 @@ decode op = Decoded{..}
     isShift = isUnOp .&&. unOp `elemS` [ASL, ROL, LSR, ROR, LDX]
     isUnAcc = isShift .&&. opBBB .==. [b|010|]
 
+    isSTY = opCC .==. [b|00|] .&&. opAAA .==. [b|100|]
+    isLDY = opCC .==. [b|00|] .&&. opAAA .==. [b|101|]
+    dJump = op `elemS` [0x4C, 0x6C]
+
     dAddr = Addressing{..}
       where
         addrNone = muxN [ (isBinOp, low)
                         , (isUnOp, isUnAcc)
-                        , (isBranch, low)
+                        , (isBranch .||. dJump, low)
+                        , (opCC .==. [b|00|] .&&. opAAA ./=. [b|000|],
+                             bitNot $ opBBB `elemS` [[b|000|], [b|001|], [b|011|], [b|101|], [b|111|]])
                         , (high, high)
                         ]
         addrImm = muxN [ (isBinOp, opBBB .==. [b|010|])
                        , (isUnOp, opBBB .==. [b|000|])
-                       , (isBranch, high)
+                       , (opCC .==. [b|00|], opBBB .==. [b|000|])
+                       , (isBranch .||. dJump, high)
                        , (high, low)
                        ]
-        addrZP = muxN [ (isBinOp .||. isUnOp, opBBB `elemS` [[b|001|], [b|101|]])
-                      , (high, low)
-                      ]
+        addrZP = opBBB `elemS` [[b|001|], [b|101|]]
 
         useY = isUnOp .&&. opAAA `elemS` [[b|100|], [b|101|]] -- STX/LDX
         preAddX = muxN [ (isBinOp .||. isUnOp, opBBB `elemS` [[b|000|], [b|101|], [b|111|]])
+                       , (opCC .==. [b|00|], opBBB `elemS` [[b|101|], [b|111|]])
                        , (high, low)
                        ]
         addrPreAddX = mux useY (preAddX, low)
         preAddY = isBinOp .&&. opBBB .==. [b|110|]
         addrPreAddY = mux useY (preAddY, preAddX)
         addrPostAddY = isBinOp .&&. opBBB .==. [b|100|]
-        addrIndirect = isBinOp .&&. opBBB `elemS` [[b|000|], [b|100|]]
+        addrIndirect = muxN [ (isBinOp, opBBB `elemS` [[b|000|], [b|100|]])
+                            , (high, op `elemS` [0x6C]) -- JMP
+                            ]
         addrDirect = muxN [ (isBinOp, opBBB `elemS` [[b|011|], [b|110|], [b|111|]])
-                          , (isUnOp,  opBBB `elemS` [[b|011|], [b|111|]])
-                          , (high, low)
+                          , (high,  opBBB `elemS` [[b|011|], [b|111|]])
                           ]
 
     dUseBinALU = packEnabled isBinOp binOp
@@ -169,6 +177,8 @@ decode op = Decoded{..}
                      , (op `elemS` [0xCA, 0x88], enabledS $ pureS DEC) -- DEX, DEY
                      , (op .==. pureS 0xA8, enabledS $ pureS LDX) -- TAY
                      , (op .==. pureS 0x98, enabledS $ pureS STX) -- TYA
+                     , (isSTY, enabledS $ pureS STX)
+                     , (isLDY, enabledS $ pureS LDX)
                      , (high, disabledS)
                      ]
     dUseCmpALU = opCC .==. [b|00|] .&&.
@@ -250,7 +260,8 @@ cpu CPUIn{..} = runRTL $ do
     -- State
     s <- newReg Init
     rOp <- newReg 0x00
-    let decoded@Decoded{..} = decode (var rOp)
+    let op = var rOp
+        decoded@Decoded{..} = decode op
         Addressing{..} = dAddr
         size2 = addrImm .||. addrZP
         size3 = addrDirect .||. addrIndirect
@@ -351,6 +362,14 @@ cpu CPUIn{..} = runRTL $ do
                         WHEN branchCond $ do
                             rPC := reg rPC + signed argByte
                         s := pureS Fetch1
+                 , IF dJump $ do
+                        CASE [ IF addrIndirect $ do
+                                    rNextA := addr1
+                                    s := pureS FetchVector1
+                             , OTHERWISE $ do
+                                    rPC := addr1
+                                    s := pureS Fetch1
+                             ]
                  , IF (addrNone .||. addrImm) $ do
                         WHEN dWriteFlags $ commitALUFlags
                         WHEN dWriteA $ rA := res
@@ -371,12 +390,24 @@ cpu CPUIn{..} = runRTL $ do
                               ]
     let addr2 = argWord + unsigned addrPostOffset
     let run2 = do
-            rNextA := addr2
             CASE [ IF dWriteMem $ do
+                        rNextA := addr2
                         rNextW := enabledS res
                         s := pureS WaitWrite
-                 , OTHERWISE $ do
+                 , IF (op `elemS` [0x24, 0x2C]) $ do -- BIT
+                        fZ := (reg rA .&. argByte) .==. 0
+                        fV := argByte `testABit` 6
+                        fN := argByte `testABit` 7
+                 , IF addrIndirect $ do
+                        rNextA := addr2
                         s := pureS WaitRead
+                 , OTHERWISE $ do
+                        WHEN dWriteFlags $ commitALUFlags
+                        WHEN dWriteA $ rA := res
+                        WHEN dWriteX $ rX := res
+                        WHEN dWriteY $ rY := res
+                        rNextA := reg rPC
+                        s := pureS Fetch1
                  ]
 
     WHEN (bitNot cpuWait) $
@@ -390,7 +421,7 @@ cpu CPUIn{..} = runRTL $ do
               s := pureS FetchVector2
           FetchVector2 -> do
               let pc' = (reg rPC .&. 0xFF) .|. (unsigned cpuMemR `shiftL` 8)
-                  isRTS = reg rOp .==. pureS 0x60
+                  isRTS = op .==. pureS 0x60
               rPC := mux isRTS (pc', pc' + 1) -- BWAAAAH!
               rNextA := var rPC
               s := pureS Fetch1
@@ -419,7 +450,7 @@ cpu CPUIn{..} = runRTL $ do
               run2
               s := pureS Halt
           WaitRead -> do
-              run1
+              run2
               rNextA := reg rPC
               s := pureS Fetch1
 {-
@@ -440,7 +471,7 @@ cpu CPUIn{..} = runRTL $ do
 
     -- Debug view
     let cpuState = reg s
-        cpuOp = var rOp
+        cpuOp = op
         cpuArgBuf = reg rArgBuf
         cpuDecoded = decoded
     let cpuA = reg rA
