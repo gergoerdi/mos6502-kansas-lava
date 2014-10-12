@@ -154,8 +154,8 @@ decode op = Decoded{..}
                    ]
     dWriteY = muxN [ (isBinOp, low)
                    , (isUnOp, low)
-                   , (op `elemS` [0xC8, 0x88], high) -- INY, DEY
-                   , (op .==. pureS 0xA8, high) -- TAY
+                   , (op `elemS` [0xC8, 0x88, 0xA8], high) -- INY, DEY, TAY
+                   , (isLDY, high)
                    , (high, low)
                    ]
     dWriteMem = muxN [ (isBinOp, binOp .==. pureS STA)
