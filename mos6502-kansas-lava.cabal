@@ -19,6 +19,7 @@ library
         MOS6502.CPU
   other-modules:
         MOS6502.ALU
+        MOS6502.Decoder
         MOS6502.Utils
         MOS6502.Opcodes
 
@@ -30,7 +31,7 @@ library
         bimap
   default-language:    Haskell2010
   other-extensions:    ScopedTypeVariables, RecordWildCards, TypeFamilies, QuasiQuotes
-  Ghc-Options:         
+  Ghc-Options:         -Werror
                        -fwarn-unused-imports -fwarn-unused-matches
                        -fwarn-unused-binds -fwarn-missing-signatures
 
