@@ -94,8 +94,8 @@ cpu CPUIn{..} = runRTL $ do
     let op = var rOp
         decoded@Decoded{..} = decode op
         Addressing{..} = dAddr
-        size2 = addrImm .||. addrZP
-        _size3 = addrDirect .||. addrIndirect
+        size2 = addrImm .||. addrZP .||. addrIndirect
+        _size3 = addrDirect
         size1 = addrNone -- bitNot $ size2 .||. size3
 
     rArgBuf <- newReg 0x00
@@ -149,6 +149,7 @@ cpu CPUIn{..} = runRTL $ do
     let aluIn = ALUIn{ aluInC = reg fC, aluInD = reg fD }
 
     let unArg = muxN [ (dReadMem, argByte)
+                     , (addrImm, argByte)
                      , (dReadA, reg rA)
                      , (dReadX, reg rX)
                      , (dReadY, reg rY)
@@ -182,16 +183,16 @@ cpu CPUIn{..} = runRTL $ do
                              , (addrPreAddY, reg rY)
                              , (high, 0)
                              ]
-    let addr1 = muxN [ (addrZP, unsigned $ argByte + addrPreOffset)
-                     , (addrDirect, argWord + unsigned addrPreOffset)
-                     ]
+    let addr1 = mux (addrZP .||. addrIndirect)
+                      (argWord + unsigned addrPreOffset,
+                       unsigned $ argByte + addrPreOffset)
         run1 = do
             CASE [ match dBranch $ \branch -> do
                         let (selector, target) = unpack branch
                         let branchFlag = branchFlags .!. selector
                             branchCond = branchFlag .==. target
                         WHEN branchCond $ do
-                            rPC := reg rPC + signed argByte
+                            rPC := reg rPC + signed argByte + 1
                         s := pureS Fetch1
                  , IF dJump $ do
                         CASE [ IF addrIndirect $ do
@@ -222,6 +223,9 @@ cpu CPUIn{..} = runRTL $ do
                         rNextW := enabledS $ unsigned (reg rPC `shiftR` 8)
                         rPC := addr1
                         s := pureS WaitPushAddr
+                 , IF addrIndirect $ do
+                        rNextA := addr1
+                        s := pureS Indirect1
                  , OTHERWISE $ do
                         rNextA := addr1
                         s := pureS WaitRead
@@ -240,7 +244,9 @@ cpu CPUIn{..} = runRTL $ do
                         fZ := (reg rA .&. argByte) .==. 0
                         fV := argByte `testABit` 6
                         fN := argByte `testABit` 7
-                 , IF addrIndirect $ do
+                        rNextA := reg rPC
+                        s := pureS Fetch1
+                 , IF (addrIndirect .&&. reg s .==. pureS Indirect2) $ do
                         rNextA := addr2
                         s := pureS WaitRead
                  , OTHERWISE $ do
