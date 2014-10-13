@@ -21,13 +21,14 @@ import Control.Applicative
 main :: IO ()
 main = do
     args <- getArgs
-    fileName <- case args of
-        [fileName] -> return fileName
+    (fileName, steps) <- case args of
+        [fileName] -> return (fileName, 5000)
+        [fileName, s] -> return (fileName, read s)
         _ -> error "Missing filename"
 
     rom <- programToROM 0xF000 <$> BS.readFile fileName
     let mtxs = benchVideo rom
-        mtx = mtxs !! 5000
+        mtx = mtxs !! steps
 
     Gtk.initGUI
     window <- Gtk.windowNew
