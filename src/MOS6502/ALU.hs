@@ -154,9 +154,7 @@ binaryALU op ALUIn{..} arg1 arg2 = (ALUOut{..}, result)
         (c, v, z) = sub
     staS = logicS (\x _ -> x)
     ldaS = logicS (\_ y -> y)
-    cmpS = (z, enabledS c, disabledS)
-      where
-        (c, _v, z) = sub
+    cmpS = (arg1 - arg2, enabledS $ arg1 .>=. arg2, disabledS)
 
     sub = subCarry aluInC arg1 arg2
 
