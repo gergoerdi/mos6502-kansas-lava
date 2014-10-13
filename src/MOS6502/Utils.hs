@@ -2,6 +2,10 @@ module MOS6502.Utils where
 
 import Language.KansasLava
 
+-- | Non-overlapping case
+caseEx :: [Cond s c] -> RTL s c ()
+caseEx = foldr (\c rtl -> CASE [c, OTHERWISE rtl]) (return ())
+
 switch :: (Clock clk, Rep a, Eq a, Enum a, Bounded a)
        => Signal clk a -> (a -> RTL s clk ()) -> RTL s clk ()
 switch sig f =

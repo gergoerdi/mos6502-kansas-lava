@@ -165,6 +165,7 @@ cpu CPUIn{..} = runRTL $ do
     let res = muxN [ (isEnabled dUseBinALU, binRes)
                    , (isEnabled dUseUnALU, unRes)
                    , (dUseCmpALU, cmpRes)
+                   , (high, argByte)
                    ]
 
     let commitALUFlags = do
@@ -187,84 +188,84 @@ cpu CPUIn{..} = runRTL $ do
                       (argWord + unsigned addrPreOffset,
                        unsigned $ argByte + addrPreOffset)
         run1 = do
-            CASE [ match dBranch $ \branch -> do
-                        let (selector, target) = unpack branch
-                        let branchFlag = branchFlags .!. selector
-                            branchCond = branchFlag .==. target
-                        WHEN branchCond $ do
-                            rPC := reg rPC + signed argByte + 1
-                        s := pureS Fetch1
-                 , IF dJump $ do
-                        CASE [ IF addrIndirect $ do
-                                    rNextA := addr1
-                                    s := pureS FetchVector1
-                             , OTHERWISE $ do
-                                    rPC := addr1
-                                    s := pureS Fetch1
-                             ]
-                 , IF addrPop $ do
-                        rSP := reg rSP + 1
-                        rNextA := popTarget
-                        s := pureS WaitRead
-                 , IF (addrNone .||. addrImm) $ do
-                        WHEN dUpdateFlags $ commitALUFlags
-                        WHEN dWriteA $ rA := res
-                        WHEN dWriteX $ rX := res
-                        WHEN dWriteY $ rY := res
-                        rNextA := var rPC
-                        s := pureS Fetch1
-                 , IF dJSR $ do
-                        rArgBuf := unsigned (reg rPC)
-                        rSP := reg rSP - 2
-                        rNextA := pushTarget
-                        rNextW := enabledS $ unsigned (reg rPC `shiftR` 8)
-                        rPC := addr1
-                        s := pureS WaitPushAddr
-                 , IF addrIndirect $ do
-                        rNextA := addr1
-                        s := pureS Indirect1
-                 , IF dReadMem $ do
-                        rNextA := addr1
-                        s := pureS WaitRead
-                 , IF dWriteMem $ do
-                        rNextA := addr1
-                        rNextW := enabledS res
-                        s := pureS WaitWrite
-                 ]
+            caseEx [ match dBranch $ \branch -> do
+                          let (selector, target) = unpack branch
+                          let branchFlag = branchFlags .!. selector
+                              branchCond = branchFlag .==. target
+                          WHEN branchCond $ do
+                              rPC := reg rPC + signed argByte + 1
+                          s := pureS Fetch1
+                   , IF dJump $ do
+                          CASE [ IF addrIndirect $ do
+                                      rNextA := addr1
+                                      s := pureS FetchVector1
+                               , OTHERWISE $ do
+                                      rPC := addr1
+                                      s := pureS Fetch1
+                               ]
+                   , IF addrPop $ do
+                          rSP := reg rSP + 1
+                          rNextA := popTarget
+                          s := pureS WaitRead
+                   , IF (addrNone .||. addrImm) $ do
+                          WHEN dUpdateFlags $ commitALUFlags
+                          WHEN dWriteA $ rA := res
+                          WHEN dWriteX $ rX := res
+                          WHEN dWriteY $ rY := res
+                          rNextA := var rPC
+                          s := pureS Fetch1
+                   , IF dJSR $ do
+                          rArgBuf := unsigned (reg rPC)
+                          rSP := reg rSP - 2
+                          rNextA := pushTarget
+                          rNextW := enabledS $ unsigned (reg rPC `shiftR` 8)
+                          rPC := addr1
+                          s := pureS WaitPushAddr
+                   , IF addrIndirect $ do
+                          rNextA := addr1
+                          s := pureS Indirect1
+                   , IF dReadMem $ do
+                          rNextA := addr1
+                          s := pureS WaitRead
+                   , IF dWriteMem $ do
+                          rNextA := addr1
+                          rNextW := enabledS res
+                          s := pureS WaitWrite
+                   ]
 
     let addrPostOffset = muxN [ (addrPostAddY, reg rY)
                               , (high, 0)
                               ]
     let addr2 = argWord + unsigned addrPostOffset
     let run2 = do
-            CASE [ IF (op `elemS` [0x24, 0x2C]) $ do -- BIT
-                        fZ := (reg rA .&. argByte) .==. 0
-                        fV := argByte `testABit` 6
-                        fN := argByte `testABit` 7
-                        rNextA := reg rPC
-                        s := pureS Fetch1
-                 , IF (addrIndirect .&&. reg s .==. pureS Indirect2) $ do
-                        rNextA := addr2
-                        CASE [ IF dWriteMem $ do
-                                    rNextW := enabledS res
-                                    s := pureS WaitWrite
-                             , OTHERWISE $ do
-                                    s := pureS WaitRead
-                             ]
-                 , OTHERWISE $ do
-                        WHEN dUpdateFlags $ commitALUFlags
-                        WHEN dWriteFlags $ setFlags argByte
-                        WHEN dWriteA $ rA := res
-                        WHEN dWriteX $ rX := res
-                        WHEN dWriteY $ rY := res
-                        CASE [ IF dWriteMem $ do
-                                    rNextW := enabledS res
-                                    s := pureS WaitWrite
-                             , OTHERWISE $ do
-                                    rNextA := reg rPC
-                                    s := pureS Fetch1
-                             ]
-                 ]
+            caseEx [ IF (op `elemS` [0x24, 0x2C]) $ do -- BIT
+                          fZ := (reg rA .&. argByte) .==. 0
+                          fV := argByte `testABit` 6
+                          fN := argByte `testABit` 7
+                          rNextA := reg rPC
+                          s := pureS Fetch1
+                   , IF (addrIndirect .&&. reg s .==. pureS Indirect2) $ do
+                          rNextA := addr2
+                          CASE [ IF dWriteMem $ do
+                                      rNextW := enabledS res
+                                      s := pureS WaitWrite
+                               , OTHERWISE $ do
+                                      s := pureS WaitRead
+                               ]
+                   , OTHERWISE $ do
+                          WHEN dUpdateFlags $ commitALUFlags
+                          WHEN dWriteFlags $ setFlags argByte
+                          WHEN dWriteA $ rA := res
+                          WHEN dWriteX $ rX := res
+                          WHEN dWriteY $ rY := res
+                          CASE [ IF dWriteMem $ do
+                                      rNextW := enabledS res
+                                      s := pureS WaitWrite
+                               , OTHERWISE $ do
+                                      rNextA := reg rPC
+                                      s := pureS Fetch1
+                               ]
+                   ]
 
     WHEN (bitNot cpuWait) $
       switch (reg s) $ \state -> case state of
@@ -282,25 +283,25 @@ cpu CPUIn{..} = runRTL $ do
               s := pureS Fetch1
           Fetch1 -> do
               rOp := cpuMemR
-              CASE [ IF (op .==. 0x00) $ do -- TODO: BRK
-                          s := pureS Halt
-                   , IF dRTS $ do
-                          rSP := reg rSP + 2
-                          rNextA := popTarget
-                          s := pureS FetchVector1
-                   , IF (op `elemS` [0x48, 0x08]) $ do -- PHA, PHP
-                          rSP := reg rSP - 1
-                          rNextA := pushTarget
-                          rNextW := enabledS $ mux (op .==. 0x08) (reg rA, flags)
-                          s := pureS WaitWrite
-                   , IF (op `elemS` [0x68, 0x28]) $ do -- PLA, PLP
-                          rSP := reg rSP + 1
-                          rNextA := popTarget
-                          s := pureS WaitRead
-                   , OTHERWISE $ do
-                          WHEN (op .==. 0x00) $ s := pureS Halt
-                          WHEN size1 run1
-                   ]
+              caseEx [ IF (op .==. 0x00) $ do -- TODO: BRK
+                            s := pureS Halt
+                     , IF dRTS $ do
+                            rSP := reg rSP + 2
+                            rNextA := popTarget
+                            s := pureS FetchVector1
+                     , IF (op `elemS` [0x48, 0x08]) $ do -- PHA, PHP
+                            rSP := reg rSP - 1
+                            rNextA := pushTarget
+                            rNextW := enabledS $ mux (op .==. 0x08) (reg rA, flags)
+                            s := pureS WaitWrite
+                     , IF (op `elemS` [0x68, 0x28]) $ do -- PLA, PLP
+                            rSP := reg rSP + 1
+                            rNextA := popTarget
+                            s := pureS WaitRead
+                     , OTHERWISE $ do
+                            WHEN (op .==. 0x00) $ s := pureS Halt
+                            WHEN size1 run1
+                     ]
               rPC := reg rPC + 1
               rNextA := var rPC
               s := pureS Fetch2
