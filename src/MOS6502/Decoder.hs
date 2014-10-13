@@ -70,7 +70,7 @@ decode op = Decoded{..}
     dJump = op `elemS` [0x4C, 0x6C]
     dRTS = op .==. 0x60
 
-    dAddr = Addressing{..}
+    dAddr@Addressing{..} = Addressing{..}
       where
         addrNone = muxN [ (isBinOp, low)
                         , (isUnOp, isUnAcc)
@@ -136,7 +136,7 @@ decode op = Decoded{..}
                   , (dUseCmpALU, opAAA .==. [b|110|])
                   , (high, low)
                   ]
-    dReadMem = muxN [ (isBinOp, bitNot dReadA)
+    dReadMem = muxN [ (isBinOp, bitNot dReadA .&&. bitNot addrImm)
                     , (isUnOp, bitNot $ dReadA .||. dReadX)
                     , (high, low)
                     ]
