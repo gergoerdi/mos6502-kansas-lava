@@ -211,11 +211,8 @@ cpu CPUIn{..} = runRTL $ do
                         WHEN dWriteA $ rA := res
                         WHEN dWriteX $ rX := res
                         WHEN dWriteY $ rY := res
+                        rNextA := var rPC
                         s := pureS Fetch1
-                 , IF dWriteMem $ do
-                        rNextA := addr1
-                        rNextW := enabledS res
-                        s := pureS WaitWrite
                  , IF dJSR $ do
                         rArgBuf := unsigned (reg rPC)
                         rSP := reg rSP - 2
@@ -226,9 +223,13 @@ cpu CPUIn{..} = runRTL $ do
                  , IF addrIndirect $ do
                         rNextA := addr1
                         s := pureS Indirect1
-                 , OTHERWISE $ do
+                 , IF dReadMem $ do
                         rNextA := addr1
                         s := pureS WaitRead
+                 , IF dWriteMem $ do
+                        rNextA := addr1
+                        rNextW := enabledS res
+                        s := pureS WaitWrite
                  ]
 
     let addrPostOffset = muxN [ (addrPostAddY, reg rY)
@@ -236,11 +237,7 @@ cpu CPUIn{..} = runRTL $ do
                               ]
     let addr2 = argWord + unsigned addrPostOffset
     let run2 = do
-            CASE [ IF dWriteMem $ do
-                        rNextA := addr2
-                        rNextW := enabledS res
-                        s := pureS WaitWrite
-                 , IF (op `elemS` [0x24, 0x2C]) $ do -- BIT
+            CASE [ IF (op `elemS` [0x24, 0x2C]) $ do -- BIT
                         fZ := (reg rA .&. argByte) .==. 0
                         fV := argByte `testABit` 6
                         fN := argByte `testABit` 7
@@ -248,15 +245,25 @@ cpu CPUIn{..} = runRTL $ do
                         s := pureS Fetch1
                  , IF (addrIndirect .&&. reg s .==. pureS Indirect2) $ do
                         rNextA := addr2
-                        s := pureS WaitRead
+                        CASE [ IF dWriteMem $ do
+                                    rNextW := enabledS res
+                                    s := pureS WaitWrite
+                             , OTHERWISE $ do
+                                    s := pureS WaitRead
+                             ]
                  , OTHERWISE $ do
                         WHEN dUpdateFlags $ commitALUFlags
                         WHEN dWriteFlags $ setFlags argByte
                         WHEN dWriteA $ rA := res
                         WHEN dWriteX $ rX := res
                         WHEN dWriteY $ rY := res
-                        rNextA := reg rPC
-                        s := pureS Fetch1
+                        CASE [ IF dWriteMem $ do
+                                    rNextW := enabledS res
+                                    s := pureS WaitWrite
+                             , OTHERWISE $ do
+                                    rNextA := reg rPC
+                                    s := pureS Fetch1
+                             ]
                  ]
 
     WHEN (bitNot cpuWait) $
@@ -317,18 +324,18 @@ cpu CPUIn{..} = runRTL $ do
               s := pureS Halt
           WaitRead -> do
               run2
-              rNextA := reg rPC
-              s := pureS Fetch1
+              s := pureS Halt
           WaitPushAddr -> do
               rNextA := reg rNextA - 1
               rNextW := enabledS (reg rArgBuf)
               s := pureS WaitWrite
           WaitWrite -> do
-              rNextW := disabledS
               rNextA := reg rPC
               s := pureS Fetch1
-          _ -> do
+          Halt -> do
               s := pureS Halt
+
+    rNextW := disabledS
 
     let cpuMemA = var rNextA
         cpuMemW = var rNextW
