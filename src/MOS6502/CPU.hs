@@ -302,11 +302,15 @@ cpu CPUIn{..} = runRTL $ do
                             WHEN (op .==. 0x00) $ s := pureS Halt
                             WHEN size1 run1
                      ]
+              WHEN size1 $ do
+                  s := pureS Fetch1
               rPC := reg rPC + 1
               rNextA := var rPC
               s := pureS Fetch2
           Fetch2 -> do
-              WHEN size2 run1
+              WHEN size2 $ do
+                  run1
+                  s := pureS Fetch1
               rPC := reg rPC + 1
               rArgBuf := cpuMemR
               rNextA := var rPC
@@ -346,12 +350,12 @@ cpu CPUIn{..} = runRTL $ do
         cpuOp = op
         cpuArgBuf = reg rArgBuf
         cpuDecoded = decoded
-    let cpuA = reg rA
-        cpuX = reg rX
-        cpuY = reg rY
-        cpuSP = reg rSP
+    let cpuA = var rA
+        cpuX = var rX
+        cpuY = var rY
+        cpuSP = var rSP
         cpuP = flags
-        cpuPC = reg rPC
+        cpuPC = var rPC
 
     return (CPUOut{..}, CPUDebug{..})
 
