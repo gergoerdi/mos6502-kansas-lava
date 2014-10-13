@@ -141,7 +141,7 @@ decode op = Decoded{..}
                     , (high, low)
                     ]
 
-    dWriteA = muxN [ (isBinOp, binOp ./=. pureS STA)
+    dWriteA = muxN [ (isBinOp, bitNot $ binOp `elemS` [STA, CMP])
                    , (isUnOp, isUnAcc)
                    , (op .==. pureS 0x98, high) -- TYA
                    , (op .==. pureS 0x68, high) -- PLA
