@@ -61,8 +61,8 @@ decode op = Decoded{..}
              -- bitNot (unOp `elemS` [Un_Special_1, Un_Special_2]) .&&.
              bitNot (op .==. 0xEA) -- NOP
     unOp = bitwise opAAA
-    isShift = isUnOp .&&. unOp `elemS` [ASL, ROL, LSR, ROR, LDX]
-    isUnAcc = isShift .&&. opBBB .==. [b|010|]
+    isUnA = unOp `elemS` [ASL, ROL, LSR, ROR, LDX] .&&. opBBB .==. [b|010|]
+    isUnX = unOp `elemS` [DEC] .&&. opBBB .==. [b|010|]
 
     isSTY = opCC .==. [b|00|] .&&. opAAA .==. [b|100|]
     isLDY = opCC .==. [b|00|] .&&. opAAA .==. [b|101|]
@@ -73,7 +73,7 @@ decode op = Decoded{..}
     dAddr@Addressing{..} = Addressing{..}
       where
         addrNone = muxN [ (isBinOp, low)
-                        , (isUnOp, isUnAcc)
+                        , (isUnOp, isUnA .||. isUnX)
                         , (isBranch .||. dJump, low)
                         , (opCC .==. [b|00|] .&&. opAAA ./=. [b|000|],
                              bitNot $ opBBB `elemS` [[b|000|], [b|001|], [b|011|], [b|101|], [b|111|]])
@@ -119,13 +119,13 @@ decode op = Decoded{..}
                  opBBB `elemS` [[b|000|], [b|001|], [b|011|]]
 
     dReadA = muxN [ (isBinOp, binOp ./=. pureS LDA)
-                  , (isUnOp, isUnAcc)
+                  , (isUnOp, isUnA)
                   , (op .==. pureS 0xA8, high) -- TAY
                   , (high, low)
                   ]
     dReadX = muxN [ (isBinOp, low)
-                  , (isUnOp, unOp .==. pureS STX)
-                  , (op `elemS` [0xE8, 0xCA], high) -- INX, DEX
+                  , (isUnOp, unOp .==. pureS STX .||. isUnX)
+                  , (op `elemS` [0xE8, 0xCA], high) -- INX
                   , (dUseCmpALU, opAAA .==. [b|111|])
                   , (high, low)
                   ]
@@ -134,22 +134,24 @@ decode op = Decoded{..}
                   , (op `elemS` [0xC8, 0x88], high) -- INY, DEY
                   , (op .==. pureS 0x98, high) -- TYA
                   , (dUseCmpALU, opAAA .==. [b|110|])
+                  , (isSTY, high)
                   , (high, low)
                   ]
     dReadMem = muxN [ (isBinOp, bitNot dReadA .&&. bitNot addrImm)
                     , (isUnOp, bitNot $ dReadA .||. dReadX)
+                    , (isLDY, high)
                     , (high, low)
                     ]
 
     dWriteA = muxN [ (isBinOp, bitNot $ binOp `elemS` [STA, CMP])
-                   , (isUnOp, isUnAcc)
+                   , (isUnOp, isUnA)
                    , (op .==. pureS 0x98, high) -- TYA
                    , (op .==. pureS 0x68, high) -- PLA
                    , (high, low)
                    ]
     dWriteX = muxN [ (isBinOp, low)
-                   , (isUnOp, unOp .==. pureS LDX)
-                   , (op `elemS` [0xE8, 0xCA], high) -- INX, DEX
+                   , (isUnOp, unOp .==. pureS LDX .||. isUnX)
+                   , (op `elemS` [0xE8, 0xCA], high) -- INX
                    , (high, low)
                    ]
     dWriteY = muxN [ (isBinOp, low)
@@ -159,7 +161,8 @@ decode op = Decoded{..}
                    , (high, low)
                    ]
     dWriteMem = muxN [ (isBinOp, binOp .==. pureS STA)
-                     , (isUnOp, unOp ./=. pureS LDX .&&. bitNot isUnAcc)
+                     , (isUnOp, unOp ./=. pureS LDX .&&. bitNot isUnA .&&. bitNot isUnX)
+                     , (isSTY, high)
                      , (high, low)
                      ]
     dWriteFlags = op .==. 0x28 -- PLP
