@@ -5,6 +5,7 @@ import MOS6502.Types
 import MOS6502.CPU
 import MOS6502.Opcodes
 import MOS6502.ALU
+import MOS6502.Decoder
 import MOS6502.Bench.Video (FBAddr)
 -- import MOS6502.Bench.GTK
 
@@ -47,23 +48,25 @@ demo = do
 -}
 
 -- demo' :: IO [Matrix FBAddr U4]
--- testBench :: FilePath -> IO (Signal CLK ((Addr, Byte, State), (Addr, Enabled Byte, Byte)))
-testBench :: FilePath -> IO (Signal CLK ((Addr, Byte, State), (Bool)))
--- testBench :: FilePath -> IO (Signal CLK ((Byte, State), (Bool, Bool), Bool))
 testBench fileName = bench . programToROM 0xF000 <$> BS.readFile fileName
-  -- where
-    -- fileName = "example/rle.obj"
-    -- fileName = "example/routines.obj"
-    -- fileName = "example/hello.obj"
   where
-    -- bench romContents = pack (pack (cpuOp, cpuState), pack (addrImm, addrNone), dReadX)
-    -- bench romContents = pack (pack (cpuPC, cpuOp, cpuState), pack (cpuMemA, cpuMemW, cpuMemR))
-    bench romContents = pack (pack (cpuPC, cpuOp, cpuState), addrNone)
-    -- bench romContents = pack (pack (cpuPC, cpuOp, cpuState), dBranch cpuDecoded, cpuP `testABit` 1)
+    bench romContents = dbg
       where
-        (_, CPUIn{..}, CPUOut{..}, CPUDebug{..}) = benchCircuit romContents
+        dbg = (cpuIn, cpuOut, cpuDebug)
+        -- dbg = pack (state, wline, regs)
+
+        (_, cpuIn@CPUIn{..}, cpuOut@CPUOut{..}, cpuDebug@CPUDebug{..}) = benchCircuit romContents
         Decoded{..} = cpuDecoded
         Addressing{..} = dAddr
+
+        wline :: Signal CLK (Pipe Addr Byte)
+        wline = packEnabled (isEnabled cpuMemW) (pack (cpuMemA, enabledVal cpuMemW))
+
+        state :: Signal CLK (Addr, Byte, State)
+        state = pack (cpuPC, cpuOp, cpuState)
+
+        regs :: Signal CLK (Byte, Byte, Byte)
+        regs = pack (cpuA, cpuX, cpuY)
 
 programToROM :: Addr -> BS.ByteString -> (Addr -> Byte)
 programToROM startingAddr bs addr
