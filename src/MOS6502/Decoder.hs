@@ -65,6 +65,7 @@ decode op = Decoded{..}
     isUnX = unOp `elemS` [DEC] .&&. opBBB .==. [b|010|]
 
     isSTY = opCC .==. [b|00|] .&&. opAAA .==. [b|100|]
+    isTXA = op .==. 0x8A
     isLDY = opCC .==. [b|00|] .&&. opAAA .==. [b|101|]
     dJSR = op .==. 0x20
     dJump = op `elemS` [0x4C, 0x6C]
@@ -73,7 +74,7 @@ decode op = Decoded{..}
     dAddr@Addressing{..} = Addressing{..}
       where
         addrNone = muxN [ (isBinOp, low)
-                        , (isUnOp, isUnA .||. isUnX)
+                        , (isUnOp, isUnA .||. isUnX .||. isTXA)
                         , (isBranch .||. dJump, low)
                         , (opCC .==. [b|00|] .&&. opAAA ./=. [b|000|],
                              bitNot $ opBBB `elemS` [[b|000|], [b|001|], [b|011|], [b|101|], [b|111|]])
@@ -137,14 +138,14 @@ decode op = Decoded{..}
                   , (isSTY, high)
                   , (high, low)
                   ]
-    dReadMem = muxN [ (isBinOp, bitNot dReadA .&&. bitNot addrImm)
-                    , (isUnOp, bitNot $ dReadA .||. dReadX)
-                    , (isLDY, high)
+    dReadMem = muxN [ (isBinOp, bitNot $ binOp .==. pureS STA .||. addrImm)
+                    , (isUnOp, bitNot $ dReadA .||. dReadX .||. dReadY)
+                    , (isLDY, bitNot dReadA)
                     , (high, low)
                     ]
 
     dWriteA = muxN [ (isBinOp, bitNot $ binOp `elemS` [STA, CMP])
-                   , (isUnOp, isUnA)
+                   , (isUnOp, isUnA .||. isTXA)
                    , (op .==. pureS 0x98, high) -- TYA
                    , (op .==. pureS 0x68, high) -- PLA
                    , (high, low)
@@ -162,15 +163,17 @@ decode op = Decoded{..}
                    ]
     dWriteMem = muxN [ (isBinOp, binOp .==. pureS STA)
                      , (isUnOp, unOp ./=. pureS LDX .&&. bitNot isUnA .&&. bitNot isUnX)
-                     , (isSTY, high)
+                     , (isSTY, bitNot dWriteA)
                      , (high, low)
                      ]
     dWriteFlags = op .==. 0x28 -- PLP
 
     dUpdateFlags = muxN [ (isBinOp, binOp ./=. pureS STA)
-                        , (isUnOp, unOp ./=. pureS STX)
+                        , (isUnOp, bitNot $ unOp .==. pureS STX .&&. opBBB ./=. [b|010|] )
+                        , (dUseCmpALU, high)
                         , (op `elemS` [0xE8, 0xC8], high) -- INX, INY
                         , (op `elemS` [0xCA, 0x88], high) -- DEX, DEY
+                        -- , (op `elemS` [0xAA, 0x8A], high) -- TAX, TXA
                         , (high, low)
                         ]
 
