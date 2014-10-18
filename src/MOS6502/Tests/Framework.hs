@@ -11,8 +11,12 @@ import MOS6502.CPU
 import Language.KansasLava hiding (Reg)
 import Language.KansasLava.Signal (shallowMapS)
 import Control.Monad.Writer
+import Numeric (showHex)
+import Data.Char (toUpper)
 import Data.Monoid
+import Data.Bits (shiftR)
 import Data.List (findIndex)
+import Control.Arrow (first)
 import Data.Maybe (catMaybes, fromMaybe, mapMaybe)
 import Data.Sized.Unsigned
 import Data.Sized.Matrix (Matrix, (!), Size, (//))
@@ -97,32 +101,58 @@ after = GetAfter
 data InitialState = InitialState
     { initialA, initialX, initialY :: Byte
     , initialPC :: Addr
-    , initialZP :: Matrix Byte Byte
+    , initialRAM :: Matrix (U4, Byte) Byte
     }
-    deriving Show
+
+instance Show InitialState where
+    show InitialState{..} =
+        unlines [ "A = " <> showHex_ initialA
+                , "X = " <> showHex_ initialX
+                , "Y = " <> showHex_ initialY
+                , "PC = " <> showHex_ initialPC
+                , Matrix.showMatrix . fmap showHex_ $ initialRAM
+                ]
+
+showHex_ :: (Show a, Integral a) => a -> String
+showHex_ x = "$" <> (map toUpper $ showHex x "")
 
 instance (Size ix) => Arbitrary (Unsigned ix) where
     arbitrary = elements [minBound..maxBound]
+
+newtype LoByte = LoByte Byte
+newtype HiByte = HiByte Byte
+
+instance Arbitrary LoByte where
+    arbitrary = fmap LoByte arbitrary
+
+instance Arbitrary HiByte where
+    arbitrary = fmap HiByte $ elements [0x00..0xEE]
+
+instance Show LoByte where
+    show (LoByte byte) = showHex_ byte
+
+instance Show HiByte where
+    show (HiByte byte) = showHex_ byte
 
 instance Arbitrary InitialState where
     arbitrary = do
         initialA <- arbitrary
         initialX <- arbitrary
         initialY <- arbitrary
-        initialPC <- arbitrary `suchThat` (\x -> x > 0x1000 && x < 0xFF00)
-        initialZP <- arbitrary
+        initialPC <- arbitrary `suchThat` (\x -> x > 0xF000 && x < 0xFF00)
+        initialRAM <- arbitrary
         return InitialState{..}
 
 instance forall ix a. (Size ix, Arbitrary a) => Arbitrary (Matrix ix a) where
-    arbitrary = liftM Matrix.fromList $
+    arbitrary = fmap Matrix.fromList $
                 mapM (const arbitrary) (Matrix.all :: [ix])
 
 
-nullZP :: Matrix Byte Byte
-nullZP = constZP 0
+nullRAM :: Matrix (U4, Byte) Byte
+nullRAM = constRAM 0
 
-constZP :: Byte -> Matrix Byte Byte
-constZP = Matrix.forAll . const
+constRAM :: Byte -> Matrix (U4, Byte) Byte
+constRAM = Matrix.forAll . const
 
 data Only a = Only{ getOnly :: Maybe a }
 
@@ -132,10 +162,10 @@ instance Monoid (Only a) where
         (Just _, Just _) -> error "Only"
         _ -> Only $ mx `mplus` mx'
 
-runTest :: Test -> Byte -> Byte -> InitialState -> Bool
-runTest (Op0 test) _arg1 _arg2 = runTestM test []
-runTest (Op1 mkTest) arg1 _arg2 = runTestM (mkTest arg1) [arg1]
-runTest (Op2 mkTest) arg1 arg2 = runTestM (mkTest addr) [arg1, arg2]
+runTest :: Test -> LoByte -> HiByte -> InitialState -> Bool
+runTest (Op0 test) _ _ = runTestM test []
+runTest (Op1 mkTest) (LoByte arg1) _ = runTestM (mkTest arg1) [arg1]
+runTest (Op2 mkTest) (LoByte arg1) (HiByte arg2) = runTestM (mkTest addr) [arg1, arg2]
   where
     addr = fromIntegral arg2 * 256 + fromIntegral arg1
 
@@ -161,14 +191,15 @@ runTestM test args InitialState{..} = pass
     getBefore (Reg A) = initialA
     getBefore (Reg X) = initialX
     getBefore (Reg Y) = initialY
-    getBefore (ZP zp) = initialZP ! zp
+    getBefore (ZP zp) = initialRAM ! (0, zp)
+    getBefore (Mem addr) = initialRAM ! splitAddr addr
 
     getAfter :: Query a -> a
     getAfter (Reg A) = afterA
     getAfter (Reg X) = afterX
     getAfter (Reg Y) = afterY
     getAfter PC = afterPC
-    getAfter (ZP zp) = afterZP ! zp
+    getAfter (ZP zp) = afterRAM ! (0, zp)
 
     cpuIn :: CPUIn CLK
     cpuIn = CPUIn{..}
@@ -180,10 +211,10 @@ runTestM test args InitialState{..} = pass
         offset = fromIntegral $ addr - initialPC
         numArgs = length args
 
-    zpROM addr = initialZP ! fromIntegral addr
+    theRAM addr = initialRAM ! splitAddr addr
 
     cpuMemR = memoryMapping 0 $
-              [ (cpuMemA .<=. 0xFF, rom cpuMemA (Just . zpROM))
+              [ (cpuMemA .<. 0xF000, rom cpuMemA (Just . theRAM))
               , (high, rom cpuMemA (Just . progROM))
               ]
     cpuIRQ = low
@@ -206,12 +237,11 @@ runTestM test args InitialState{..} = pass
     (afterA, afterX, afterY) = last $ listS $ pack (cpuA, cpuX, cpuY)
     afterPC = last $ listS cpuPC
 
-    afterZP :: Matrix Byte Byte
-    afterZP = initialZP // mapMaybe toZP writes
-      where
-        toZP (addr, byte) = do
-            guard $ addr <= 0xFF
-            return (fromIntegral addr, byte)
+    afterRAM :: Matrix (U4, Byte) Byte
+    afterRAM = initialRAM // map (first splitAddr) writes
+
+    splitAddr :: Addr -> (U4, Byte)
+    splitAddr addr = (fromIntegral $ addr `shiftR` 8, fromIntegral addr)
 
     (CPUOut{..}, CPUDebug{..}) = cpu' cpuInit cpuIn
       where
