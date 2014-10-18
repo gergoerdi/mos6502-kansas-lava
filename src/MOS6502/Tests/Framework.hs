@@ -195,7 +195,7 @@ findNthIndex :: Int -> (a -> Bool) -> [a] -> Maybe Int
 findNthIndex i p | i < 1 = error "findNthIndex"
                  | otherwise = go 0 i
   where
-    go acc _ [] = Nothing
+    go _acc _ [] = Nothing
     go acc 1 (x:xs) | p x = Just acc
                     | otherwise = go (1 + acc) 1 xs
     go acc k (x:xs) | p x = go (1 + acc) (k-1) xs
