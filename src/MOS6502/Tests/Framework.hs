@@ -64,6 +64,9 @@ data TestM (from :: Phase) (to :: Phase) (a :: *) where
     Execute :: Byte -> Int -> TestM Before After ()
     Assert :: String -> Bool -> TestM After After ()
 
+instance Functor (TestM from to) where
+    fmap f m = m :>>= (Return . f)
+
 execute :: Byte -> Int -> TestM Before After ()
 execute = Execute
 
