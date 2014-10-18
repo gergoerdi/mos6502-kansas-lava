@@ -8,9 +8,12 @@ import MOS6502.Tests.Framework
 import MOS6502.Types
 import Prelude hiding ((>>=), (>>), return, fail)
 import Data.Bits
+import Data.Sized.Signed (S8)
+import Control.Applicative ((<$>))
 
 allTests :: [Test]
-allTests = concat [ jmp
+allTests = concat [ branch
+                  , jmp
                   , lda
                   , ldx
                   , ldy
@@ -18,6 +21,7 @@ allTests = concat [ jmp
                   , sta
                   ]
   where
+    branch = [ beq, bne, bcs, bcc, bvs, bvc, bmi, bpl ]
     jmp = [ jmp_abs, jmp_ind ]
     lda = [ lda_imm, lda_zp, lda_zp_x, lda_abs, lda_abs_x, lda_abs_y, lda_ind_x, lda_ind_y ]
     ldx = [ ldx_imm, ldx_zp, ldx_zp_y, ldx_abs, ldx_abs_y]
@@ -67,6 +71,41 @@ deref addr = do
     hiAddr :: Byte
     (loAddr, hiAddr) = (fromIntegral addr, fromIntegral (addr `shiftR` 8))
     nextAddr = toAddr (loAddr + 1) hiAddr
+
+branch :: String -> Byte -> (Byte -> Bool) -> Test
+branch name opcode takeBranch = op1 name $ \offset -> do
+    let offset' = fromIntegral offset :: S8
+    taken <- takeBranch <$> before statusFlags
+    pc <- before regPC
+    -- TODO: extra cycle for page boundary
+    execute opcode $ if taken then 3 else 2
+    pc' <- after regPC
+    assertEq (if taken then "Branch taken" else "Branch not taken") pc' $
+      if taken then pc + 2 + fromIntegral offset' else pc + 2
+
+beq :: Test
+beq = branch "BEQ" 0xF0 (`testBit` 6)
+
+bne :: Test
+bne = branch "BNE" 0xD0 $ not . (`testBit` 6)
+
+bcs :: Test
+bcs = branch "BCS" 0xB0 (`testBit` 7)
+
+bcc :: Test
+bcc = branch "BCC" 0x90 $ not . (`testBit` 7)
+
+bvs :: Test
+bvs = branch "BVS" 0x70 (`testBit` 1)
+
+bvc :: Test
+bvc = branch "BVS" 0x50 $ not . (`testBit` 1)
+
+bmi :: Test
+bmi = branch "BMI" 0x30 (`testBit` 0)
+
+bpl :: Test
+bpl = branch "BPL" 0x10 $ not . (`testBit` 0)
 
 nop :: Test
 nop = op0 "NOP" $ do
