@@ -101,7 +101,7 @@ after = GetAfter
 
 data InitialState = InitialState
     { arg1, arg2 :: Byte
-    , initialA, initialX, initialY :: Byte
+    , initialA, initialX, initialY, initialFlags :: Byte
     , initialPC :: Addr
     , initialRAM :: Matrix Addr Byte
     }
@@ -157,6 +157,7 @@ instance Arbitrary InitialState where
         initialA <- arbitrary
         initialX <- arbitrary
         initialY <- arbitrary
+        initialFlags <- arbitrary
         initialPC <- arbitrary `suchThat` (\x -> x > 0xF000 && x < 0xFF00)
         initialRAM <- arbitrary
         return InitialState{..}
@@ -222,13 +223,15 @@ runTestM test args InitialState{..} =
     getBefore (Reg A) = initialA
     getBefore (Reg X) = initialX
     getBefore (Reg Y) = initialY
+    getBefore (Reg P) = initialFlags
+    getBefore PC = initialPC
     getBefore (Mem addr) = initialRAM' ! addr
 
     getAfter :: Query a -> a
     getAfter (Reg A) = afterA
     getAfter (Reg X) = afterX
     getAfter (Reg Y) = afterY
-    getAfter (Reg P) = afterP
+    getAfter (Reg P) = afterFlags
     getAfter PC = afterPC
     getAfter (Mem addr) = afterRAM ! addr
 
@@ -257,7 +260,7 @@ runTestM test args InitialState{..} =
                pack (cpuMemA, enabledVal cpuMemW)
 
     (afterA, afterX, afterY) = last $ listS $ pack (cpuA, cpuX, cpuY)
-    (afterP, _afterSP, afterPC) = last $ listS $ pack (cpuP, cpuSP, cpuPC)
+    (afterFlags, _afterSP, afterPC) = last $ listS $ pack (cpuP, cpuSP, cpuPC)
 
     afterRAM :: Matrix Addr Byte
     afterRAM = initialRAM' // writes
@@ -267,5 +270,6 @@ runTestM test args InitialState{..} =
         cpuInit = CPUInit{ initA = initialA
                          , initX = initialX
                          , initY = initialY
+                         , initP = initialFlags
                          , initPC = Just initialPC
                          }

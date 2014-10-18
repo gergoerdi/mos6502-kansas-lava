@@ -92,6 +92,7 @@ data CPUInit = CPUInit
     { initA :: Byte
     , initX :: Byte
     , initY :: Byte
+    , initP :: Byte
     , initPC :: Maybe Addr
     }
 
@@ -99,6 +100,7 @@ instance Default CPUInit where
     def = CPUInit{ initA = 0x00
                  , initX = 0x00
                  , initY = 0x00
+                 , initP = 0x00
                  , initPC = Nothing
                  }
 
@@ -136,13 +138,13 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
         pushTarget = 0x0100 .|. unsigned (reg rSP)
 
     -- Flags
-    fC <- newReg False
-    fZ <- newReg False
-    fI <- newReg False
-    fD <- newReg False
-    fB <- newReg False
-    fV <- newReg False
-    fN <- newReg False
+    fC <- newReg $ initP `testBit` 7
+    fZ <- newReg $ initP `testBit` 6
+    fI <- newReg $ initP `testBit` 5
+    fD <- newReg $ initP `testBit` 4
+    fB <- newReg $ initP `testBit` 3
+    fV <- newReg $ initP `testBit` 1
+    fN <- newReg $ initP `testBit` 0
 
     let flags = bitsToByte . Matrix.fromList . reverse $
                 [ var fC
