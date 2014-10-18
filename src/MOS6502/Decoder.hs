@@ -171,6 +171,7 @@ decode op = Decoded{..}
     dUpdateFlags = muxN [ (isBinOp, binOp ./=. pureS STA)
                         , (isUnOp, bitNot $ unOp .==. pureS STX .&&. opBBB ./=. [b|010|] )
                         , (dUseCmpALU, high)
+                        , (isLDY, high)
                         , (op `elemS` [0xE8, 0xC8], high) -- INX, INY
                         , (op `elemS` [0xCA, 0x88], high) -- DEX, DEY
                         -- , (op `elemS` [0xAA, 0x8A], high) -- TAX, TXA
