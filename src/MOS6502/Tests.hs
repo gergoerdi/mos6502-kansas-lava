@@ -9,6 +9,22 @@ import MOS6502.Types
 import Prelude hiding ((>>=), (>>), return, fail)
 import Data.Bits
 
+allTests :: [Test]
+allTests = concat [ jmp
+                  , lda
+                  , ldx
+                  , ldy
+                  , [nop]
+                  , sta
+                  ]
+  where
+    jmp = [ jmp_abs, jmp_ind ]
+    lda = [ lda_imm, lda_zp, lda_zp_x, lda_abs, lda_abs_x, lda_abs_y, lda_ind_x, lda_ind_y ]
+    ldx = [ ldx_imm, ldx_zp, ldx_zp_y, ldx_abs, ldx_abs_y]
+    ldy = [ ldy_imm, ldy_zp, ldy_zp_x, ldy_abs, ldy_abs_x]
+    sta = [ sta_zp, sta_zp_x, sta_abs, sta_abs_x, sta_abs_y, sta_ind_x, sta_ind_y ]
+
+
 ifThenElse :: Bool -> a -> a -> a
 ifThenElse True thn _els = thn
 ifThenElse False _thn els = els
@@ -40,6 +56,17 @@ derefZP zp = do
     lo <- before $ memZP zp
     hi <- before $ memZP (zp + 1)
     return $ toAddr lo hi
+
+deref :: Addr -> TestM Before Before Addr
+deref addr = do
+    lo <- before $ mem addr
+    hi <- before $ mem nextAddr
+    return $ toAddr lo hi
+  where
+    loAddr :: Byte
+    hiAddr :: Byte
+    (loAddr, hiAddr) = (fromIntegral addr, fromIntegral (addr `shiftR` 8))
+    nextAddr = toAddr (loAddr + 1) hiAddr
 
 nop :: Test
 nop = op0 "NOP" $ do
@@ -100,12 +127,127 @@ lda_ind_x = op1 "LDA (zp,X)" $ \zp -> do
     a' <- checkFlags $ after regA
     assert "A is correctly set" $ a' == b
 
+lda_ind_y :: Test
+lda_ind_y = op1 "LDA (zp),Y" $ \zp -> do
+    y <- before regY
+    addr <- derefZP $ zp
+    let (addr', bankFault) = offset addr y
+    b <- before $ mem addr'
+    execute 0xB1 $ if bankFault then 6 else 5
+    a' <- checkFlags $ after regA
+    assert "A is correctly set" $ a' == b
+
+ldx_imm :: Test
+ldx_imm = op1 "LDX imm" $ \imm -> do
+    execute 0xA2 2
+    x' <- checkFlags $ after regX
+    assert "X is correctly set" $ x' == imm
+
+ldx_zp :: Test
+ldx_zp = op1 "LDX zp" $ \zp -> do
+    b <- before $ memZP zp
+    execute 0xA6 3
+    x' <- checkFlags $ after regX
+    assert "X is correctly set" $ x' == b
+
+ldx_zp_y :: Test
+ldx_zp_y = op1 "LDX zp,Y" $ \zp -> do
+    y <- before regY
+    b <- before $ memZP (zp + y)
+    execute 0xB6 4
+    x' <- checkFlags $ after regX
+    assert "X is correctly set" $ x' == b
+
+ldx_abs :: Test
+ldx_abs = op2 "LDX abs" $ \addr -> do
+    b <- before $ mem addr
+    execute 0xAE 4
+    x' <- checkFlags $ after regX
+    assert "X is correctly set" $ x' == b
+
+ldx_abs_y :: Test
+ldx_abs_y = op2 "LDX abs,Y" $ \addr -> do
+    y <- before regY
+    let (addr', bankFault) = offset addr y
+    b <- before $ mem addr'
+    execute 0xBE $ if bankFault then 5 else 4
+    x' <- checkFlags $ after regX
+    assert "X is correctly set" $ x' == b
+
+ldy_imm :: Test
+ldy_imm = op1 "LDY imm" $ \imm -> do
+    execute 0xA0 2
+    y' <- checkFlags $ after regY
+    assert "Y is correctly set" $ y' == imm
+
+ldy_zp :: Test
+ldy_zp = op1 "LDY zp" $ \zp -> do
+    b <- before $ memZP zp
+    execute 0xA4 3
+    y' <- checkFlags $ after regX
+    assert "Y is correctly set" $ y' == b
+
+ldy_zp_x :: Test
+ldy_zp_x = op1 "LDY zp,X" $ \zp -> do
+    x <- before regX
+    b <- before $ memZP (zp + x)
+    execute 0xB4 4
+    y' <- checkFlags $ after regY
+    assert "Y is correctly set" $ y' == b
+
+ldy_abs :: Test
+ldy_abs = op2 "LDY abs" $ \addr -> do
+    b <- before $ mem addr
+    execute 0xAC 4
+    y' <- checkFlags $ after regY
+    assert "Y is correctly set" $ y' == b
+
+ldy_abs_x :: Test
+ldy_abs_x = op2 "LDY abs,X" $ \addr -> do
+    x <- before regX
+    let (addr', bankFault) = offset addr x
+    b <- before $ mem addr'
+    execute 0xBC $ if bankFault then 5 else 4
+    y' <- checkFlags $ after regY
+    assert "Y is correctly set" $ y' == b
+
 sta_zp :: Test
 sta_zp = op1 "STA zp" $ \zp -> do
     a <- before regA
     execute 0x85 3
     b' <- after $ memZP zp
     assert "B[ZP]" $ b' == a
+
+sta_zp_x :: Test
+sta_zp_x = op1 "STA zp,X" $ \zp -> do
+    a <- before regA
+    x <- before regX
+    execute 0x95 4
+    b' <- after $ memZP (zp + x)
+    assert "B[@@,X]" $ b' == a
+
+sta_abs :: Test
+sta_abs = op2 "STA abs" $ \addr -> do
+    a <- before regA
+    execute 0x8D 5
+    b' <- after $ mem addr
+    assert "B[@@@@]" $ b' == a
+
+sta_abs_x :: Test
+sta_abs_x = op2 "STA abs,X" $ \addr -> do
+    a <- before regA
+    x <- before regX
+    execute 0x9D 5
+    b' <- after $ mem (addr + fromIntegral x)
+    assert "B[@@@@,X]" $ b' == a
+
+sta_abs_y :: Test
+sta_abs_y = op2 "STA abs,Y" $ \addr -> do
+    a <- before regA
+    y <- before regY
+    execute 0x99 5
+    b' <- after $ mem (addr + fromIntegral y)
+    assert "B[@@@@,Y]" $ b' == a
 
 sta_ind_x :: Test
 sta_ind_x = op1 "STA (zp,X)" $ \zp -> do
@@ -131,3 +273,10 @@ jmp_abs = op2 "JMP abs" $ \addr -> do
     execute 0x4C 3
     pc' <- after regPC
     assert "PC" $ pc' == addr
+
+jmp_ind :: Test
+jmp_ind = op2 "JMP ind" $ \addr -> do
+    addr' <- deref addr
+    execute 0x6C 5
+    pc' <- after regPC
+    assert "PC" $ pc' == addr'
