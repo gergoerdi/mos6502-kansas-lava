@@ -301,7 +301,9 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
               s := pureS Fetch1
           FetchVector1 -> do
               rPC := unsigned cpuMemR
-              rNextA := reg rNextA + 1
+              let hi = reg rNextA .&. 0xFF00
+                  lo = unsigned $ reg rNextA
+              rNextA := hi .|. unsigned (lo + pureS (1 :: Byte))
               s := pureS FetchVector2
           FetchVector2 -> do
               let pc' = (reg rPC .&. 0xFF) .|. (unsigned cpuMemR `shiftL` 8)
