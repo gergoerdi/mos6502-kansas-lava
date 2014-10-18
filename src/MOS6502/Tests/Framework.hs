@@ -180,9 +180,20 @@ whileJust [] = []
 whileJust (Nothing:_) = []
 whileJust (Just x:xs) = x : whileJust xs
 
+findNthIndex :: Int -> (a -> Bool) -> [a] -> Maybe Int
+findNthIndex i p | i < 1 = error "findNthIndex"
+                 | otherwise = go 0 i
+  where
+    go acc _ [] = Nothing
+    go acc 1 (x:xs) | p x = Just acc
+                    | otherwise = go (1 + acc) 1 xs
+    go acc k (x:xs) | p x = go (1 + acc) (k-1) xs
+                    | otherwise = go (1 + acc) k xs
+
 runTestM :: TestM Before After () -> [Byte] -> InitialState -> Result
-runTestM test args InitialState{..} = if null failures then succeeded
-                                      else failed{ reason = unlines failures }
+runTestM test args InitialState{..} =
+    if null failures then succeeded
+    else failed{ reason = unlines failures }
   where
     run :: TestM from to a -> Writer (Only (Byte, Int), [(String, Bool)]) a
     run (GetBefore query) = return $ getBefore query
@@ -214,16 +225,15 @@ runTestM test args InitialState{..} = if null failures then succeeded
 
     initialRAM' = initialRAM // forced
       where
-        forced = (initialPC, opcode) : zip [initialPC + 1..] (args ++ [0])
+        forced = (initialPC, opcode) : zip [initialPC + 1..] args
 
     cpuMemR = rom cpuMemA (Just . (initialRAM' !))
     cpuIRQ = low
     cpuNMI = low
     cpuWait = low
 
-    numCycles = subtract 1 $
-                fromMaybe (error "CPU didn't halt") $
-                findIndex (== Halt) . whileJust . fromS $ cpuState
+    numCycles = fromMaybe (error "CPU didn't fetch next instruction") $
+                findNthIndex 2 (== Fetch1) . whileJust . fromS $ cpuState
 
     listS :: (Rep a) => Signal CLK a -> [a]
     listS = catMaybes . take numCycles . fromS
