@@ -14,6 +14,7 @@ import Data.Sized.Unsigned
 import Data.Sized.Matrix
 import qualified Data.Sized.Matrix as Matrix
 import Data.Bits
+import Data.Default
 
 data CPUIn clk = CPUIn
     { cpuMemR :: Signal clk Byte
@@ -46,6 +47,7 @@ data CPUDebug clk = CPUDebug
 
 data State = Halt
            | Init
+           | InitTest
            | FetchVector1
            | FetchVector2
            | Fetch1
@@ -57,7 +59,7 @@ data State = Halt
            | WaitPushAddr
            | WaitWrite
            deriving (Show, Eq, Enum, Bounded)
-type StateSize = X12
+type StateSize = X13
 
 instance Rep State where
     type W State = X4 -- W StateSize
@@ -86,10 +88,33 @@ byteToBits :: (Clock clk)
            -> Matrix X8 (Signal clk Bool)
 byteToBits = unpackMatrix . bitwise
 
+data CPUInit = CPUInit
+    { initA :: Byte
+    , initX :: Byte
+    , initY :: Byte
+    , initPC :: Maybe Addr
+    }
+
+instance Default CPUInit where
+    def = CPUInit{ initA = 0x00
+                 , initX = 0x00
+                 , initY = 0x00
+                 , initPC = Nothing
+                 }
+
 cpu :: forall clk. (Clock clk) => CPUIn clk -> (CPUOut clk, CPUDebug clk)
-cpu CPUIn{..} = runRTL $ do
+cpu = cpu' def
+
+cpu' :: forall clk. (Clock clk) => CPUInit -> CPUIn clk -> (CPUOut clk, CPUDebug clk)
+cpu' CPUInit{..} CPUIn{..} = runRTL $ do
+
     -- State
-    s <- newReg Init
+    let (s0, pc0) = case initPC of
+            Nothing -> (Init, 0x0000) -- PC to be filled in by Init
+            Just pc -> (InitTest, pc)
+    s <- newReg s0
+    rPC <- newReg pc0
+
     rOp <- newReg 0x00
     let op = var rOp
         decoded@Decoded{..} = decode op
@@ -103,11 +128,10 @@ cpu CPUIn{..} = runRTL $ do
     let argWord = reg rArgBuf `appendS` argByte
 
     -- Registers
-    rA <- newReg 0x00
-    rX <- newReg 0x00
-    rY <- newReg 0x00
+    rA <- newReg initA
+    rX <- newReg initX
+    rY <- newReg initY
     rSP <- newReg 0xFF
-    rPC <- newReg 0x0000 -- To be filled in by Init
     let popTarget = 0x0100 .|. unsigned (reg rSP + 1)
         pushTarget = 0x0100 .|. unsigned (reg rSP)
 
@@ -272,6 +296,9 @@ cpu CPUIn{..} = runRTL $ do
           Init -> do
               rNextA := pureS resetVector
               s := pureS FetchVector1
+          InitTest -> do
+              rNextA := reg rPC
+              s := pureS Fetch1
           FetchVector1 -> do
               rPC := unsigned cpuMemR
               rNextA := reg rNextA + 1
