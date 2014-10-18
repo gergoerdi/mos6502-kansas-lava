@@ -120,7 +120,8 @@ instance Show InitialState where
                 , line "W[@@,X]" wZPX
                 , line "B[(@@,X)]" $ initialRAM ! wZPX
                 , line "B[(@@),Y]" $ initialRAM ! wZP + initialY
-                , line "B[@@@@]" $ initialRAM ! argAddr
+                , line "B[@@@@]" $ byteAt argAddr
+                , line "W[@@@@]" $ wordAt argAddr
                 , line "W[(@@@@)]" $ wordAt (wordAt argAddr)
                 ]
       where
