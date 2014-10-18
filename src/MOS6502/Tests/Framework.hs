@@ -1,6 +1,6 @@
 {-# LANGUAGE DataKinds, KindSignatures #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE RecordWildCards, NamedFieldPuns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module MOS6502.Tests.Framework where
 
@@ -14,24 +14,23 @@ import Control.Monad.Writer
 import Numeric (showHex)
 import Data.Char (toUpper)
 import Data.Monoid
-import Data.Bits (shiftR)
+import Data.Bits (shiftL, shiftR)
 import Data.List (findIndex)
-import Control.Arrow (first)
-import Data.Maybe (catMaybes, fromMaybe, mapMaybe)
+import Data.Maybe (catMaybes, fromMaybe)
 import Data.Sized.Unsigned
 import Data.Sized.Matrix (Matrix, (!), Size, (//))
 import qualified Data.Sized.Matrix as Matrix
-import Test.QuickCheck
+import Test.QuickCheck hiding (Result(..))
+import Test.QuickCheck.Property
 -- import qualified Data.Traversable as T
 
 import Debug.Trace
 
-data Reg = A | X | Y
+data Reg = A | X | Y | P
 
 data Query a where
     Reg :: Reg -> Query Byte
     PC :: Query Addr
-    ZP :: Byte -> Query Byte
     Mem :: Addr -> Query Byte
 
 data SomeQuery where
@@ -50,13 +49,13 @@ regPC :: Query Addr
 regPC = PC
 
 memZP :: Byte -> Query Byte
-memZP = ZP
+memZP = Mem . fromIntegral
 
 mem :: Addr -> Query Byte
 mem = Mem
 
-derefZP :: Byte -> Query Addr
-derefZP = undefined
+statusFlags :: Query Byte
+statusFlags = Reg P
 
 data Phase = Before | After
 
@@ -66,7 +65,7 @@ data TestM (from :: Phase) (to :: Phase) (a :: *) where
     (:>>=) :: TestM from int a -> (a -> TestM int to b) -> TestM from to b
     Return :: a -> TestM from to a
     Execute :: Byte -> Int -> TestM Before After ()
-    Assert :: Bool -> TestM After After ()
+    Assert :: String -> Bool -> TestM After After ()
 
 execute :: Byte -> Int -> TestM Before After ()
 execute = Execute
@@ -84,7 +83,7 @@ op1 = Op1
 op2 :: (Addr -> TestM Before After ()) -> Test
 op2 = Op2
 
-assert :: Bool -> TestM After After ()
+assert :: String -> Bool -> TestM After After ()
 assert = Assert
 
 offset :: Addr -> Byte -> (Addr, Bool)
@@ -99,19 +98,37 @@ after :: Query a -> TestM After After a
 after = GetAfter
 
 data InitialState = InitialState
-    { initialA, initialX, initialY :: Byte
+    { arg1, arg2 :: Byte
+    , initialA, initialX, initialY :: Byte
     , initialPC :: Addr
-    , initialRAM :: Matrix (U4, Byte) Byte
+    , initialRAM :: Matrix Addr Byte
     }
 
 instance Show InitialState where
     show InitialState{..} =
-        unlines [ "A = " <> showHex_ initialA
-                , "X = " <> showHex_ initialX
-                , "Y = " <> showHex_ initialY
-                , "PC = " <> showHex_ initialPC
-                , Matrix.showMatrix . fmap showHex_ $ initialRAM
+        unlines [ line "Arg1" arg1
+                , line "Arg2" arg2
+                , line "ArgAddr" argAddr
+                , line "A" initialA
+                , line "X" initialX
+                , line "Y" initialY
+                , line "PC" initialPC
+                , line "B[ZP]" $ initialRAM ! fromIntegral arg1
+                , line "B[ZP,X]" $ initialRAM ! fromIntegral (arg1 + initialX)
+                , line "W[ZP,X]" wZPX
+                , line "B[(ZP,X)]" $ initialRAM ! wZPX
                 ]
+      where
+        line s v = unwords [s, "=", showHex_ v]
+
+        argAddr :: Addr
+        argAddr = toAddr arg1 arg2
+
+        wZPX = toAddr (initialRAM ! fromIntegral (arg1 + initialX))
+                      (initialRAM ! fromIntegral (arg1 + initialX + 1))
+
+toAddr :: Byte -> Byte -> Addr
+toAddr lo hi = fromIntegral hi `shiftL` 8 + fromIntegral lo
 
 showHex_ :: (Show a, Integral a) => a -> String
 showHex_ x = "$" <> (map toUpper $ showHex x "")
@@ -119,23 +136,10 @@ showHex_ x = "$" <> (map toUpper $ showHex x "")
 instance (Size ix) => Arbitrary (Unsigned ix) where
     arbitrary = elements [minBound..maxBound]
 
-newtype LoByte = LoByte Byte
-newtype HiByte = HiByte Byte
-
-instance Arbitrary LoByte where
-    arbitrary = fmap LoByte arbitrary
-
-instance Arbitrary HiByte where
-    arbitrary = fmap HiByte $ elements [0x00..0xEE]
-
-instance Show LoByte where
-    show (LoByte byte) = showHex_ byte
-
-instance Show HiByte where
-    show (HiByte byte) = showHex_ byte
-
 instance Arbitrary InitialState where
     arbitrary = do
+        arg1 <- arbitrary
+        arg2 <- elements [0x00..0xEE]
         initialA <- arbitrary
         initialX <- arbitrary
         initialY <- arbitrary
@@ -148,10 +152,10 @@ instance forall ix a. (Size ix, Arbitrary a) => Arbitrary (Matrix ix a) where
                 mapM (const arbitrary) (Matrix.all :: [ix])
 
 
-nullRAM :: Matrix (U4, Byte) Byte
+nullRAM :: Matrix Addr Byte
 nullRAM = constRAM 0
 
-constRAM :: Byte -> Matrix (U4, Byte) Byte
+constRAM :: Byte -> Matrix Addr Byte
 constRAM = Matrix.forAll . const
 
 data Only a = Only{ getOnly :: Maybe a }
@@ -162,10 +166,10 @@ instance Monoid (Only a) where
         (Just _, Just _) -> error "Only"
         _ -> Only $ mx `mplus` mx'
 
-runTest :: Test -> LoByte -> HiByte -> InitialState -> Bool
-runTest (Op0 test) _ _ = runTestM test []
-runTest (Op1 mkTest) (LoByte arg1) _ = runTestM (mkTest arg1) [arg1]
-runTest (Op2 mkTest) (LoByte arg1) (HiByte arg2) = runTestM (mkTest addr) [arg1, arg2]
+runTest :: Test -> InitialState -> Result
+runTest (Op0 test) is = runTestM test [] is
+runTest (Op1 mkTest) is@InitialState{arg1} = runTestM (mkTest arg1) [arg1] is
+runTest (Op2 mkTest) is@InitialState{arg1, arg2} = runTestM (mkTest addr) [arg1, arg2] is
   where
     addr = fromIntegral arg2 * 256 + fromIntegral arg1
 
@@ -174,49 +178,43 @@ whileJust [] = []
 whileJust (Nothing:_) = []
 whileJust (Just x:xs) = x : whileJust xs
 
-runTestM :: TestM Before After () -> [Byte] -> InitialState -> Bool
-runTestM test args InitialState{..} = pass
+runTestM :: TestM Before After () -> [Byte] -> InitialState -> Result
+runTestM test args InitialState{..} = if null failures then succeeded
+                                      else failed{ reason = unlines failures }
   where
-    run :: TestM from to a -> Writer (Only (Byte, Int), All) a
+    run :: TestM from to a -> Writer (Only (Byte, Int), [(String, Bool)]) a
     run (GetBefore query) = return $ getBefore query
     run (GetAfter query) = return $ getAfter query
     run (m :>>= f) = run m >>= (run . f)
     run (Return x) = return x
     run (Execute opcode cycles) = tell (Only $ Just (opcode, cycles), mempty)
-    run (Assert b) = tell (mempty, All b)
+    run (Assert s b) = tell (mempty, [(s, b)])
 
-    (Only (Just (opcode, _cycles)), All pass) = execWriter (run test)
+    (Only (Just (opcode, _cycles)), messages) = execWriter (run test)
+    failures = map fst . filter (not . snd) $ messages
 
     getBefore :: Query a -> a
     getBefore (Reg A) = initialA
     getBefore (Reg X) = initialX
     getBefore (Reg Y) = initialY
-    getBefore (ZP zp) = initialRAM ! (0, zp)
-    getBefore (Mem addr) = initialRAM ! splitAddr addr
+    getBefore (Mem addr) = initialRAM' ! addr
 
     getAfter :: Query a -> a
     getAfter (Reg A) = afterA
     getAfter (Reg X) = afterX
     getAfter (Reg Y) = afterY
+    getAfter (Reg P) = afterP
     getAfter PC = afterPC
-    getAfter (ZP zp) = afterRAM ! (0, zp)
+    getAfter (Mem addr) = afterRAM ! addr
 
     cpuIn :: CPUIn CLK
     cpuIn = CPUIn{..}
 
-    progROM addr | offset == 0 = opcode
-                 | offset <= numArgs = args !! (offset - 1)
-                 | otherwise = 0
+    initialRAM' = initialRAM // forced
       where
-        offset = fromIntegral $ addr - initialPC
-        numArgs = length args
+        forced = (initialPC, opcode) : zip [initialPC + 1..] (args ++ [0])
 
-    theRAM addr = initialRAM ! splitAddr addr
-
-    cpuMemR = memoryMapping 0 $
-              [ (cpuMemA .<. 0xF000, rom cpuMemA (Just . theRAM))
-              , (high, rom cpuMemA (Just . progROM))
-              ]
+    cpuMemR = rom cpuMemA (Just . (initialRAM' !))
     cpuIRQ = low
     cpuNMI = low
     cpuWait = low
@@ -235,13 +233,10 @@ runTestM test args InitialState{..} = pass
                pack (cpuMemA, enabledVal cpuMemW)
 
     (afterA, afterX, afterY) = last $ listS $ pack (cpuA, cpuX, cpuY)
-    afterPC = last $ listS cpuPC
+    (afterP, _afterSP, afterPC) = last $ listS $ pack (cpuP, cpuSP, cpuPC)
 
-    afterRAM :: Matrix (U4, Byte) Byte
-    afterRAM = initialRAM // map (first splitAddr) writes
-
-    splitAddr :: Addr -> (U4, Byte)
-    splitAddr addr = (fromIntegral $ addr `shiftR` 8, fromIntegral addr)
+    afterRAM :: Matrix Addr Byte
+    afterRAM = initialRAM' // writes
 
     (CPUOut{..}, CPUDebug{..}) = cpu' cpuInit cpuIn
       where
