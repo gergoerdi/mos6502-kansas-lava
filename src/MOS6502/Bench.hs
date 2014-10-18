@@ -7,6 +7,7 @@ import MOS6502.Opcodes
 import MOS6502.ALU
 import MOS6502.Decoder
 import MOS6502.Bench.Video (FBAddr)
+import MOS6502.Utils
 -- import MOS6502.Bench.GTK
 
 import Language.KansasLava
@@ -119,6 +120,9 @@ benchCircuit romContents = (vram, cpuIn, cpuOut, cpuDebug)
     isRAM = cpuMemA .<. 0x4000
 
     -- One page of ROM is mapped from 0xF000
-    isROM = delay $ cpuMemA .>=. 0xF000
+    isROM = cpuMemA .>=. 0xF000
 
-    cpuMemR = mux isROM (ramR', romR)
+    cpuMemR = memoryMapping 0
+              [ (isROM, romR)
+              , (isRAM, ramR')
+              ]
