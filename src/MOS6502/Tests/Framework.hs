@@ -115,10 +115,13 @@ instance Show InitialState where
                 , line "X" initialX
                 , line "Y" initialY
                 , line "PC" initialPC
-                , line "B[ZP]" $ initialRAM ! fromIntegral arg1
-                , line "B[ZP,X]" $ initialRAM ! fromIntegral (arg1 + initialX)
-                , line "W[ZP,X]" wZPX
-                , line "B[(ZP,X)]" $ initialRAM ! wZPX
+                , line "B[@@]" $ initialRAM ! fromIntegral arg1
+                , line "B[@@,X]" $ initialRAM ! fromIntegral (arg1 + initialX)
+                , line "W[@@,X]" wZPX
+                , line "B[(@@,X)]" $ initialRAM ! wZPX
+                , line "B[(@@),Y]" $ initialRAM ! wZP + initialY
+                , line "B[@@@@]" $ initialRAM ! argAddr
+                , line "W[(@@@@)]" $ wordAt (wordAt argAddr)
                 ]
       where
         line s v = unwords [s, "=", showHex_ v]
@@ -126,6 +129,14 @@ instance Show InitialState where
         argAddr :: Addr
         argAddr = toAddr arg1 arg2
 
+        byteAt addr = initialRAM ! addr
+        wordAt addr = toAddr (byteAt addr) (byteAt addr')
+          where
+            (lo, hi) = (fromIntegral addr, fromIntegral (addr `shiftR` 8))
+            addr' = toAddr (lo + 1) hi
+
+        wZP =  toAddr (initialRAM ! fromIntegral arg1)
+                      (initialRAM ! fromIntegral (arg1 + 1))
         wZPX = toAddr (initialRAM ! fromIntegral (arg1 + initialX))
                       (initialRAM ! fromIntegral (arg1 + initialX + 1))
 
