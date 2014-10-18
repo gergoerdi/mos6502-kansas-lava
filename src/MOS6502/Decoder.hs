@@ -98,7 +98,7 @@ decode op = Decoded{..}
         addrPreAddY = mux useY (preAddY, preAddX)
         addrPostAddY = isBinOp .&&. opBBB .==. [b|100|]
         addrIndirect = muxN [ (isBinOp, opBBB `elemS` [[b|000|], [b|100|]])
-                            , (high, op `elemS` [0x6C]) -- JMP
+                            , (high, low)
                             ]
         addrDirect = muxN [ (isBinOp, opBBB `elemS` [[b|011|], [b|110|], [b|111|]])
                           , (high,  dJSR .||. opBBB `elemS` [[b|011|], [b|111|]])
@@ -141,7 +141,7 @@ decode op = Decoded{..}
     dReadMem = muxN [ (isBinOp, bitNot $ binOp .==. pureS STA .||. addrImm)
                     , (isUnOp, bitNot $ dReadA .||. dReadX .||. dReadY)
                     , (isLDY, bitNot dReadA)
-                    , (high, low)
+                    , (high, op .==. 0x6C) -- indirect JMP
                     ]
 
     dWriteA = muxN [ (isBinOp, bitNot $ binOp `elemS` [STA, CMP])

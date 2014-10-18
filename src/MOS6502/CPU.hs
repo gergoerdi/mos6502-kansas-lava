@@ -220,11 +220,11 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                               rPC := reg rPC + signed argByte + 1
                           s := pureS Fetch1
                    , IF dJump $ do
-                          CASE [ IF addrIndirect $ do
-                                      rNextA := addr1
+                          CASE [ IF dReadMem $ do
+                                      rNextA := argWord
                                       s := pureS FetchVector1
                                , OTHERWISE $ do
-                                      rPC := addr1
+                                      rPC := argWord
                                       s := pureS Fetch1
                                ]
                    , IF addrPop $ do
