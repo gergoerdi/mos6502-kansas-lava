@@ -28,6 +28,7 @@ library
         kansas-lava >=0.2.4 && < 0.2.5,
         sized-types >=0.3,
         binary-literal-qq >= 1.0 && < 1.1,
+        data-default,
         bimap
   default-language:    Haskell2010
   other-extensions:    ScopedTypeVariables, RecordWildCards, TypeFamilies, QuasiQuotes
@@ -51,6 +52,7 @@ executable mos6502-kansas-lava
         binary-literal-qq >= 1.0 && < 1.1,
         bimap,
         bytestring,
+        data-default,
         gtk
   default-language:    Haskell2010
   other-extensions:    ScopedTypeVariables, RecordWildCards, TypeFamilies, QuasiQuotes
