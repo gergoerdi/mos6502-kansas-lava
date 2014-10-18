@@ -144,18 +144,18 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
     fV <- newReg False
     fN <- newReg False
 
-    let flags = bitsToByte . Matrix.fromList $
-                [ reg fC
-                , reg fZ
-                , reg fI
-                , reg fD
-                , reg fB
+    let flags = bitsToByte . Matrix.fromList . reverse $
+                [ var fC
+                , var fZ
+                , var fI
+                , var fD
+                , var fB
                 , high
-                , reg fV
-                , reg fN
+                , var fV
+                , var fN
                 ]
         setFlags mtx = do
-            let [c, z, i, d, b, _, v, n] = Matrix.toList . byteToBits $ mtx
+            let [c, z, i, d, b, _, v, n] = reverse . Matrix.toList . byteToBits $ mtx
             fC := c
             fZ := z
             fI := i
