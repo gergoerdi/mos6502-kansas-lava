@@ -184,7 +184,7 @@ ldy_zp :: Test
 ldy_zp = op1 "LDY zp" $ \zp -> do
     b <- before $ memZP zp
     execute 0xA4 3
-    y' <- checkFlags $ after regX
+    y' <- checkFlags $ after regY
     assert "Y is correctly set" $ y' == b
 
 ldy_zp_x :: Test
