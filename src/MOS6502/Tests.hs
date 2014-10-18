@@ -42,24 +42,24 @@ derefZP zp = do
     return $ toAddr lo hi
 
 nop :: Test
-nop = op0 $ do
+nop = op0 "NOP" $ do
     execute 0xEA 2
 
 lda_imm :: Test
-lda_imm = op1 $ \imm -> do
+lda_imm = op1 "LDA imm" $ \imm -> do
     execute 0xA9 2
     a' <- checkFlags $ after regA
     assert "A is correctly set" $ a' == imm
 
 lda_zp :: Test
-lda_zp = op1 $ \zp -> do
+lda_zp = op1 "LDA zp" $ \zp -> do
     b <- before $ memZP zp
     execute 0xA5 3
     a' <- checkFlags $ after regA
     assert "A is correctly set" $ a' == b
 
 lda_zp_x :: Test
-lda_zp_x = op1 $ \zp -> do
+lda_zp_x = op1 "LDA zp,X" $ \zp -> do
     x <- before regX
     b <- before $ memZP (zp + x)
     execute 0xB5 4
@@ -67,14 +67,14 @@ lda_zp_x = op1 $ \zp -> do
     assert "A is correctly set" $ a' == b
 
 lda_abs :: Test
-lda_abs = op2 $ \addr -> do
+lda_abs = op2 "LDA abs" $ \addr -> do
     b <- before $ mem addr
     execute 0xAD 4
     a' <- checkFlags $ after regA
     assert "A is correctly set" $ a' == b
 
 lda_abs_x :: Test
-lda_abs_x = op2 $ \addr -> do
+lda_abs_x = op2 "LDA abs,X" $ \addr -> do
     x <- before regX
     let (addr', bankFault) = offset addr x
     b <- before $ mem addr'
@@ -83,7 +83,7 @@ lda_abs_x = op2 $ \addr -> do
     assert "A is correctly set" $ a' == b
 
 lda_abs_y :: Test
-lda_abs_y = op2 $ \addr -> do
+lda_abs_y = op2 "LDA abs,Y" $ \addr -> do
     y <- before regY
     let (addr', bankFault) = offset addr y
     b <- before $ mem addr'
@@ -92,42 +92,42 @@ lda_abs_y = op2 $ \addr -> do
     assert "A is correctly set" $ a' == b
 
 lda_ind_x :: Test
-lda_ind_x = op1 $ \zp -> do
+lda_ind_x = op1 "LDA (zp,X)" $ \zp -> do
     x <- before regX
-    addr <- derefZP $ zp + x -- before $ derefZP $ zp + x
+    addr <- derefZP $ zp + x
     b <- before $ mem addr
     execute 0xA1 6
     a' <- checkFlags $ after regA
     assert "A is correctly set" $ a' == b
 
 sta_zp :: Test
-sta_zp = op1 $ \zp -> do
+sta_zp = op1 "STA zp" $ \zp -> do
     a <- before regA
     execute 0x85 3
     b' <- after $ memZP zp
     assert "B[ZP]" $ b' == a
 
 sta_ind_x :: Test
-sta_ind_x = op1 $ \zp -> do
+sta_ind_x = op1 "STA (zp,X)" $ \zp -> do
     a <- before regA
     x <- before regX
     addr <- derefZP $ zp + x
     execute 0x81 6
     b' <- after $ mem addr
-    assert "B[(ZP,X)]" $ b' == a
+    assert "B[(@@,X)]" $ b' == a
 
 sta_ind_y :: Test
-sta_ind_y = op1 $ \zp -> do
+sta_ind_y = op1 "STA (zp),Y" $ \zp -> do
     a <- before regA
     y <- before regY
     addr <- derefZP zp
     execute 0x91 6
     let (addr', _) = offset addr y
     b' <- after $ mem addr'
-    assert "B[(ZP),Y]" $ b' == a
+    assert "B[(@@),Y]" $ b' == a
 
 jmp_abs :: Test
-jmp_abs = op2 $ \addr -> do
+jmp_abs = op2 "JMP abs" $ \addr -> do
     execute 0x4C 3
     pc' <- after regPC
     assert "PC" $ pc' == addr

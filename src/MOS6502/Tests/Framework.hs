@@ -22,9 +22,6 @@ import Data.Sized.Matrix (Matrix, (!), Size, (//))
 import qualified Data.Sized.Matrix as Matrix
 import Test.QuickCheck hiding (Result(..))
 import Test.QuickCheck.Property
--- import qualified Data.Traversable as T
-
-import Debug.Trace
 
 data Reg = A | X | Y | P
 
@@ -70,17 +67,22 @@ data TestM (from :: Phase) (to :: Phase) (a :: *) where
 execute :: Byte -> Int -> TestM Before After ()
 execute = Execute
 
-data Test = Op0 (TestM Before After ())
-          | Op1 (Byte -> TestM Before After ())
-          | Op2 (Addr -> TestM Before After ())
+data Test = Op0 String (TestM Before After ())
+          | Op1 String (Byte -> TestM Before After ())
+          | Op2 String (Addr -> TestM Before After ())
 
-op0 :: TestM Before After () -> Test
+testLabel :: Test -> String
+testLabel (Op0 lab _) = lab
+testLabel (Op1 lab _) = lab
+testLabel (Op2 lab _) = lab
+
+op0 :: String -> TestM Before After () -> Test
 op0 = Op0
 
-op1 :: (Byte -> TestM Before After ()) -> Test
+op1 :: String -> (Byte -> TestM Before After ()) -> Test
 op1 = Op1
 
-op2 :: (Addr -> TestM Before After ()) -> Test
+op2 :: String -> (Addr -> TestM Before After ()) -> Test
 op2 = Op2
 
 assert :: String -> Bool -> TestM After After ()
@@ -167,9 +169,9 @@ instance Monoid (Only a) where
         _ -> Only $ mx `mplus` mx'
 
 runTest :: Test -> InitialState -> Result
-runTest (Op0 test) is = runTestM test [] is
-runTest (Op1 mkTest) is@InitialState{arg1} = runTestM (mkTest arg1) [arg1] is
-runTest (Op2 mkTest) is@InitialState{arg1, arg2} = runTestM (mkTest addr) [arg1, arg2] is
+runTest (Op0 _ test) is = runTestM test [] is
+runTest (Op1 _ mkTest) is@InitialState{arg1} = runTestM (mkTest arg1) [arg1] is
+runTest (Op2 _ mkTest) is@InitialState{arg1, arg2} = runTestM (mkTest addr) [arg1, arg2] is
   where
     addr = fromIntegral arg2 * 256 + fromIntegral arg1
 
