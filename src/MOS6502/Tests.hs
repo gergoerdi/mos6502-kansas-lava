@@ -12,20 +12,20 @@ import Control.Applicative
 allTests :: [Test]
 allTests = concat [ branch
                   , jmp
-                  -- , lda
-                  -- , ldx
-                  -- , ldy
+                  , lda
+                  , ldx
+                  , ldy
                   , [nop]
-                  -- , sta
+                  , sta
                   , transfer
                   ]
   where
     branch = [ beq, bne, bcs, bcc, bvs, bvc, bmi, bpl ]
     jmp = [ jmp_abs, jmp_ind ]
-    -- lda = [ lda_imm, lda_zp, lda_zp_x, lda_abs, lda_abs_x, lda_abs_y, lda_ind_x, lda_ind_y ]
-    -- ldx = [ ldx_imm, ldx_zp, ldx_zp_y, ldx_abs, ldx_abs_y]
-    -- ldy = [ ldy_imm, ldy_zp, ldy_zp_x, ldy_abs, ldy_abs_x]
-    -- sta = [ sta_zp, sta_zp_x, sta_abs, sta_abs_x, sta_abs_y, sta_ind_x, sta_ind_y ]
+    lda = [ lda_imm, lda_zp, lda_zp_x, lda_abs, lda_abs_x, lda_abs_y, lda_ind_x, lda_ind_y ]
+    ldx = [ ldx_imm, ldx_zp, ldx_zp_y, ldx_abs, ldx_abs_y]
+    ldy = [ ldy_imm, ldy_zp, ldy_zp_x, ldy_abs, ldy_abs_x]
+    sta = [ sta_zp, sta_zp_x, sta_abs, sta_abs_x, sta_abs_y, sta_ind_x, sta_ind_y ]
     transfer = [ inx, dex, iny, dey, tax, txa, tay, tya ]
 
 nop :: Test
@@ -49,14 +49,16 @@ transfer label opcode from to fun = op0 label $ do
     new <- checkFlags $ observe $ Reg to
     assertEq (unwords [show from, "->", show to]) new (fun <$> old)
 
+costly :: Obs Bool -> Obs Int
+costly b = (\b -> if b then 1 else 0) <$> b
+
 branch :: String -> Byte -> (Byte -> Bool) -> Test
 branch name opcode takeBranch = op1 name $ \offset -> do
     let offset' = fromIntegral offset :: S8
     taken <- fmap takeBranch <$> observe statusFlags
     pc <- observe regPC
     -- TODO: extra cycle for page boundary
-    let cycles = cond <$> taken <*> 3 <*> 2
-    execute1 opcode offset cycles
+    execute1 opcode offset (2 + costly taken)
     pc' <- observe regPC
     assertEq "Branch correctly taken" pc' $
       pc + 2 + (cond <$> taken <*> fromIntegral offset' <*> 0)
@@ -149,59 +151,58 @@ txa = transfer "TAX" 0x8A X A id
 
 tya :: Test
 tya = transfer "TYA" 0x98 Y A id
-{-
+
 lda_zp_x :: Test
 lda_zp_x = op1 "LDA zp,X" $ \zp -> do
-    x <- before regX
-    b <- before $ memZP (zp + x)
-    execute 0xB5 4
-    a' <- checkFlags $ after regA
+    x <- observe regX
+    b <- observe $ memZP (pure zp + x)
+    execute1 0xB5 zp 4
+    a' <- checkFlags $ observe regA
     assertEq "A is correctly set" a' b
 
 lda_abs :: Test
 lda_abs = op2 "LDA abs" $ \addr -> do
-    b <- before $ mem addr
-    execute 0xAD 4
-    a' <- checkFlags $ after regA
+    b <- observe $ mem (pure addr)
+    execute2 0xAD addr 4
+    a' <- checkFlags $ observe regA
     assertEq "A is correctly set" a' b
 
 lda_abs_x :: Test
 lda_abs_x = op2 "LDA abs,X" $ \addr -> do
-    x <- before regX
-    let (addr', bankFault) = offset addr x
-    b <- before $ mem addr'
-    execute 0xBD $ if bankFault then 5 else 4
-    a' <- checkFlags $ after regA
+    x <- observe regX
+    let (addr', bankFault) = offset (pure addr) x
+    b <- observe $ mem addr'
+    execute2 0xBD addr (4 + costly bankFault)
+    a' <- checkFlags $ observe regA
     assertEq "A is correctly set" a' b
 
 lda_abs_y :: Test
 lda_abs_y = op2 "LDA abs,Y" $ \addr -> do
-    y <- before regY
-    let (addr', bankFault) = offset addr y
-    b <- before $ mem addr'
-    execute 0xB9 $ if bankFault then 5 else 4
-    a' <- checkFlags $ after regA
+    y <- observe regY
+    let (addr', bankFault) = offset (pure addr) y
+    b <- observe $ mem addr'
+    execute2 0xB9 addr (4 + costly bankFault)
+    a' <- checkFlags $ observe regA
     assertEq "A is correctly set" a' b
 
 lda_ind_x :: Test
 lda_ind_x = op1 "LDA (zp,X)" $ \zp -> do
-    x <- before regX
-    addr <- derefZP $ zp + x
-    b <- before $ mem addr
-    execute 0xA1 6
-    a' <- checkFlags $ after regA
+    x <- observe regX
+    addr <- derefZP $ pure zp + x
+    b <- observe $ mem addr
+    execute1 0xA1 zp 6
+    a' <- checkFlags $ observe regA
     assertEq "A is correctly set" a' b
 
 lda_ind_y :: Test
 lda_ind_y = op1 "LDA (zp),Y" $ \zp -> do
-    y <- before regY
-    addr <- derefZP $ zp
+    y <- observe regY
+    addr <- derefZP $ pure zp
     let (addr', bankFault) = offset addr y
-    b <- before $ mem addr'
-    execute 0xB1 $ if bankFault then 6 else 5
-    a' <- checkFlags $ after regA
+    b <- observe $ mem addr'
+    execute1 0xB1 zp (5 + costly bankFault)
+    a' <- checkFlags $ observe regA
     assertEq "A is correctly set" a' b
--}
 
 ldx_imm :: Test
 ldx_imm = op1 "LDX imm" $ \imm -> do
@@ -209,132 +210,130 @@ ldx_imm = op1 "LDX imm" $ \imm -> do
     x' <- checkFlags $ observe regX
     assertEq "X is correctly set" x' (pure imm)
 
-{-
 ldx_zp :: Test
 ldx_zp = op1 "LDX zp" $ \zp -> do
-    b <- before $ memZP zp
-    execute 0xA6 3
-    x' <- checkFlags $ after regX
+    b <- observe $ memZP (pure zp)
+    execute1 0xA6 zp 3
+    x' <- checkFlags $ observe regX
     assertEq "X is correctly set" x' b
 
 ldx_zp_y :: Test
 ldx_zp_y = op1 "LDX zp,Y" $ \zp -> do
-    y <- before regY
-    b <- before $ memZP (zp + y)
-    execute 0xB6 4
-    x' <- checkFlags $ after regX
+    y <- observe regY
+    b <- observe $ memZP (pure zp + y)
+    execute1 0xB6 zp 4
+    x' <- checkFlags $ observe regX
     assertEq "X is correctly set" x' b
 
 ldx_abs :: Test
 ldx_abs = op2 "LDX abs" $ \addr -> do
-    b <- before $ mem addr
-    execute 0xAE 4
-    x' <- checkFlags $ after regX
+    b <- observe $ mem (pure addr)
+    execute2 0xAE addr 4
+    x' <- checkFlags $ observe regX
     assertEq "X is correctly set" x' b
 
 ldx_abs_y :: Test
 ldx_abs_y = op2 "LDX abs,Y" $ \addr -> do
-    y <- before regY
-    let (addr', bankFault) = offset addr y
-    b <- before $ mem addr'
-    execute 0xBE $ if bankFault then 5 else 4
-    x' <- checkFlags $ after regX
+    y <- observe regY
+    let (addr', bankFault) = offset (pure addr) y
+    b <- observe $ mem addr'
+    execute2 0xBE addr (4 + costly bankFault)
+    x' <- checkFlags $ observe regX
     assertEq "X is correctly set" x' b
 
 ldy_imm :: Test
 ldy_imm = op1 "LDY imm" $ \imm -> do
-    execute 0xA0 2
-    y' <- checkFlags $ after regY
-    assertEq "Y is correctly set" y' imm
+    execute1 0xA0 imm 2
+    y' <- checkFlags $ observe regY
+    assertEq "Y is correctly set" y' (pure imm)
 
 ldy_zp :: Test
 ldy_zp = op1 "LDY zp" $ \zp -> do
-    b <- before $ memZP zp
-    execute 0xA4 3
-    y' <- checkFlags $ after regY
+    b <- observe $ memZP (pure zp)
+    execute1 0xA4 zp 3
+    y' <- checkFlags $ observe regY
     assertEq "Y is correctly set" y' b
 
 ldy_zp_x :: Test
 ldy_zp_x = op1 "LDY zp,X" $ \zp -> do
-    x <- before regX
-    b <- before $ memZP (zp + x)
-    execute 0xB4 4
-    y' <- checkFlags $ after regY
+    x <- observe regX
+    b <- observe $ memZP (pure zp + x)
+    execute1 0xB4 zp 4
+    y' <- checkFlags $ observe regY
     assertEq "Y is correctly set" y' b
 
 ldy_abs :: Test
 ldy_abs = op2 "LDY abs" $ \addr -> do
-    b <- before $ mem addr
-    execute 0xAC 4
-    y' <- checkFlags $ after regY
+    b <- observe $ mem (pure addr)
+    execute2 0xAC addr 4
+    y' <- checkFlags $ observe regY
     assertEq "Y is correctly set" y' b
 
 ldy_abs_x :: Test
 ldy_abs_x = op2 "LDY abs,X" $ \addr -> do
-    x <- before regX
-    let (addr', bankFault) = offset addr x
-    b <- before $ mem addr'
-    execute 0xBC $ if bankFault then 5 else 4
-    y' <- checkFlags $ after regY
+    x <- observe regX
+    let (addr', bankFault) = offset (pure addr) x
+    b <- observe $ mem addr'
+    execute2 0xBC addr (4 + costly bankFault)
+    y' <- checkFlags $ observe regY
     assertEq "Y is correctly set" y' b
 
 sta_zp :: Test
 sta_zp = op1 "STA zp" $ \zp -> do
-    a <- before regA
-    execute 0x85 3
-    b' <- after $ memZP zp
+    a <- observe regA
+    execute1 0x85 zp 3
+    b' <- observe $ memZP (pure zp)
     assertEq "B[ZP]" b' a
 
 sta_zp_x :: Test
 sta_zp_x = op1 "STA zp,X" $ \zp -> do
-    a <- before regA
-    x <- before regX
-    execute 0x95 4
-    b' <- after $ memZP (zp + x)
+    a <- observe regA
+    x <- observe regX
+    execute1 0x95 zp 4
+    b' <- observe $ memZP (pure zp + x)
     assertEq "B[@@,X]" b' a
 
 sta_abs :: Test
 sta_abs = op2 "STA abs" $ \addr -> do
-    a <- before regA
-    execute 0x8D 5
-    b' <- after $ mem addr
+    a <- observe regA
+    execute2 0x8D addr 5
+    b' <- observe $ mem (pure addr)
     assertEq "B[@@@@]" b' a
 
 sta_abs_x :: Test
 sta_abs_x = op2 "STA abs,X" $ \addr -> do
-    a <- before regA
-    x <- before regX
-    execute 0x9D 5
-    b' <- after $ mem (addr + fromIntegral x)
+    a <- observe regA
+    x <- observe regX
+    execute2 0x9D addr 5
+    b' <- observe $ mem (pure addr + (fromIntegral <$> x))
     assertEq "B[@@@@,X]" b' a
 
 sta_abs_y :: Test
 sta_abs_y = op2 "STA abs,Y" $ \addr -> do
-    a <- before regA
-    y <- before regY
-    execute 0x99 5
-    b' <- after $ mem (addr + fromIntegral y)
+    a <- observe regA
+    y <- observe regY
+    execute2 0x99 addr 5
+    b' <- observe $ mem (pure addr + (fromIntegral <$> y))
     assertEq "B[@@@@,Y]" b' a
 
 sta_ind_x :: Test
 sta_ind_x = op1 "STA (zp,X)" $ \zp -> do
-    a <- before regA
-    x <- before regX
-    addr <- derefZP $ zp + x
-    execute 0x81 6
-    b' <- after $ mem addr
+    a <- observe regA
+    x <- observe regX
+    addr <- derefZP $ pure zp + x
+    execute1 0x81 zp 6
+    b' <- observe $ mem addr
     assertEq "B[(@@,X)]" b' a
 
 sta_ind_y :: Test
 sta_ind_y = op1 "STA (zp),Y" $ \zp -> do
-    a <- before regA
-    y <- before regY
-    addr <- derefZP zp
-    execute 0x91 6
+    a <- observe regA
+    y <- observe regY
+    addr <- derefZP $ pure zp
+    execute1 0x91 zp 6
     let (addr', _) = offset addr y
-    b' <- after $ mem addr'
+    b' <- observe $ mem addr'
     assertEq "B[(@@),Y]" b' a
--}
 
 jmp_abs :: Test
 jmp_abs = op2 "JMP abs" $ \addr -> do
