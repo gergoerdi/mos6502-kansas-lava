@@ -5,18 +5,15 @@
 module MOS6502.Tests.Framework where
 
 import MOS6502.Types
-import MOS6502.Utils
 import MOS6502.CPU
 
 import Language.KansasLava hiding (Reg)
-import Language.KansasLava.Signal (shallowMapS)
 import Control.Monad.Writer
 import Numeric (showHex)
 import Data.Char (toUpper)
-import Data.Monoid
 import Data.Bits (shiftL, shiftR)
-import Data.List (findIndex)
-import Data.Maybe (catMaybes, fromMaybe, mapMaybe)
+-- import Data.List (findIndex)
+import Data.Maybe (catMaybes, mapMaybe)
 import Data.Sized.Unsigned
 import Data.Sized.Matrix (Matrix, (!), Size, (//))
 import qualified Data.Sized.Matrix as Matrix
