@@ -1,10 +1,9 @@
+module MOS6502.Tests.Main (tests) where
+
+import Distribution.TestSuite.QuickCheck as QC
+
 import MOS6502.Tests
 import MOS6502.Tests.Framework
-import Test.QuickCheck
-import Control.Monad (forM_)
 
-main :: IO ()
-main = do
-    forM_ allTests $ \test -> do
-        putStrLn $ testLabel test
-        quickCheck $ runTest test
+tests :: IO [QC.Test]
+tests = return [ testProperty (testLabel test) (runTest test) | test <- allTests ]
