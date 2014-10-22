@@ -58,6 +58,32 @@ executable mos6502-kansas-lava
                        -fwarn-unused-binds -fwarn-missing-signatures
                        -threaded
 
+executable mos6502-kansas-lava-tests
+  hs-source-dirs:      src
+  main-is:             MOS6502/Tests/Main.hs
+  other-modules:
+        MOS6502.Tests.Framework
+        MOS6502.Tests
+
+  build-depends:
+        mos6502-kansas-lava,
+        base >=4.7 && < 5,
+        kansas-lava >=0.2.4 && < 0.2.5,
+        sized-types >=0.3,
+        binary-literal-qq >= 1.0 && < 1.1,
+        data-default,
+
+        mtl,
+        QuickCheck >= 2.7 && < 2.8,
+        free >= 4 && < 5,
+        kan-extensions >= 4 && < 5
+  default-language:    Haskell2010
+  other-extensions:    ScopedTypeVariables, RecordWildCards, TypeFamilies, QuasiQuotes
+  Ghc-Options:
+                       -fwarn-unused-imports -fwarn-unused-matches
+                       -fwarn-unused-binds -fwarn-missing-signatures
+                       -threaded
+
 source-repository head
   type:     git
   location: git://github.com/gergoerdi/mos6502-kansas-lava
