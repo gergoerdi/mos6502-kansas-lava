@@ -21,15 +21,13 @@ library
         MOS6502.ALU
         MOS6502.Decoder
         MOS6502.Utils
-        MOS6502.Opcodes
 
   build-depends:
         base >=4.7 && < 5,
         kansas-lava >=0.2.4 && < 0.2.5,
         sized-types >=0.3,
         binary-literal-qq >= 1.0 && < 1.1,
-        data-default,
-        bimap
+        data-default
   default-language:    Haskell2010
   other-extensions:    ScopedTypeVariables, RecordWildCards, TypeFamilies, QuasiQuotes
   Ghc-Options:         -Werror
@@ -50,7 +48,6 @@ executable mos6502-kansas-lava
         kansas-lava >=0.2.4 && < 0.2.5,
         sized-types >=0.3,
         binary-literal-qq >= 1.0 && < 1.1,
-        bimap,
         bytestring,
         data-default,
         gtk

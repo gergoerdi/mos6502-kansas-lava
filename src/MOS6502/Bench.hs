@@ -3,7 +3,6 @@ module MOS6502.Bench where
 
 import MOS6502.Types
 import MOS6502.CPU
-import MOS6502.Opcodes
 import MOS6502.ALU
 import MOS6502.Decoder
 import MOS6502.Bench.Video (FBAddr)
