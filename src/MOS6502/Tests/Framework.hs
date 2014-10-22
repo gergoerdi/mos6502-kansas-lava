@@ -1,7 +1,7 @@
-{-# LANGUAGE DataKinds, KindSignatures #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE RecordWildCards, NamedFieldPuns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module MOS6502.Tests.Framework where
 
 import MOS6502.Types
@@ -16,22 +16,48 @@ import Data.Char (toUpper)
 import Data.Monoid
 import Data.Bits (shiftL, shiftR)
 import Data.List (findIndex)
-import Data.Maybe (catMaybes, fromMaybe)
+import Data.Maybe (catMaybes, fromMaybe, mapMaybe)
 import Data.Sized.Unsigned
 import Data.Sized.Matrix (Matrix, (!), Size, (//))
 import qualified Data.Sized.Matrix as Matrix
+
+import Control.Applicative.Free
+import Data.Functor.Coyoneda
+import Control.Monad.RWS
+import Control.Monad.Identity
+import Control.Applicative
+
 import Test.QuickCheck hiding (Result(..))
 import Test.QuickCheck.Property
 
-data Reg = A | X | Y | P
+data Reg = A | X | Y | P deriving Show
 
 data Query a where
     Reg :: Reg -> Query Byte
+    Mem :: Obs Addr -> Query Byte
     PC :: Query Addr
-    Mem :: Addr -> Query Byte
 
-data SomeQuery where
-    SomeQuery :: Query a -> SomeQuery
+instance Show (Query a) where
+    show (Reg r) = unwords ["Reg", show r]
+    show (Mem _) = "Mem"
+    show PC = "PC"
+
+type Step = Int
+
+data Obs' a = Query Step (Coyoneda Query a)
+newtype Obs a = Obs{ unObs :: Ap Obs' a }
+              deriving (Functor, Applicative)
+
+instance (Num a) => Num (Obs a) where
+    fromInteger = pure . fromInteger
+    (+) = liftA2 (+)
+    (-) = liftA2 (-)
+    (*) = liftA2 (*)
+    abs = liftA abs
+    signum = liftA signum
+
+data Check = CheckTiming Step (Obs Int)
+           | CheckAssertion String (Obs Bool)
 
 regA :: Query Byte
 regA = Reg A
@@ -45,62 +71,74 @@ regY = Reg Y
 regPC :: Query Addr
 regPC = PC
 
-memZP :: Byte -> Query Byte
-memZP = Mem . fromIntegral
+memZP :: Obs Byte -> Query Byte
+memZP = Mem . fmap fromIntegral
 
-mem :: Addr -> Query Byte
+mem :: Obs Addr -> Query Byte
 mem = Mem
 
 statusFlags :: Query Byte
 statusFlags = Reg P
 
-data Phase = Before | After
+newtype TestM a = TestM{ unTestM :: RWS () ([[Byte]], [Check]) Int a }
+                deriving (Functor, Applicative, Monad)
 
-data TestM (from :: Phase) (to :: Phase) (a :: *) where
-    GetBefore :: Query a -> TestM Before Before a
-    GetAfter :: Query a -> TestM After After a
-    (:>>=) :: TestM from int a -> (a -> TestM int to b) -> TestM from to b
-    Return :: a -> TestM from to a
-    Execute :: Byte -> Int -> TestM Before After ()
-    Assert :: String -> Bool -> TestM After After ()
+data Test = Op0 String (TestM ())
+          | Op1 String (Byte -> TestM ())
+          | Op2 String (Addr -> TestM ())
 
-instance Functor (TestM from to) where
-    fmap f m = m :>>= (Return . f)
+execute :: [Byte] -> Obs Int -> TestM ()
+execute bytes cycles = TestM $ do
+    step <- get
+    tell ([bytes], [CheckTiming step cycles])
+    modify succ
 
-execute :: Byte -> Int -> TestM Before After ()
-execute = Execute
+execute0 :: Byte -> Obs Int -> TestM ()
+execute0 opcode = execute [opcode]
 
-data Test = Op0 String (TestM Before After ())
-          | Op1 String (Byte -> TestM Before After ())
-          | Op2 String (Addr -> TestM Before After ())
+execute1 :: Byte -> Byte -> Obs Int -> TestM ()
+execute1 opcode arg = execute [opcode, arg]
+
+execute2 :: Byte -> Addr -> Obs Int -> TestM ()
+execute2 opcode addr = execute [opcode, lo, hi]
+  where
+    (lo, hi) = splitAddr addr
+
+splitAddr :: Addr -> (Byte, Byte)
+splitAddr addr = (fromIntegral addr, fromIntegral (addr `shiftR` 8))
 
 testLabel :: Test -> String
 testLabel (Op0 lab _) = lab
 testLabel (Op1 lab _) = lab
 testLabel (Op2 lab _) = lab
 
-op0 :: String -> TestM Before After () -> Test
+assert :: String -> Obs Bool -> TestM ()
+assert s b = TestM $ do
+    tell (mempty, [CheckAssertion s b])
+
+offset :: Obs Addr -> Obs Byte -> (Obs Addr, Obs Bool)
+offset addr d = let res = offset' <$> addr <*> d
+                in (fst <$> res, snd <$> res)
+  where
+    offset' addr d = let addr' = addr + fromIntegral d
+                     in (addr', fromIntegral addr' < d)
+
+assertEq :: (Eq a, Show a) => String -> Obs a -> Obs a -> TestM ()
+assertEq s x y = assert s ((==) <$> x <*> y)
+
+observe :: Query a -> TestM (Obs a)
+observe q = TestM $ do
+    step <- get
+    return $ Obs . liftAp . Query step . liftCoyoneda $ q
+
+op0 :: String -> TestM () -> Test
 op0 = Op0
 
-op1 :: String -> (Byte -> TestM Before After ()) -> Test
+op1 :: String -> (Byte -> TestM ()) -> Test
 op1 = Op1
 
-op2 :: String -> (Addr -> TestM Before After ()) -> Test
+op2 :: String -> (Addr -> TestM ()) -> Test
 op2 = Op2
-
-assert :: String -> Bool -> TestM After After ()
-assert = Assert
-
-offset :: Addr -> Byte -> (Addr, Bool)
-offset addr d = (addr', fromIntegral addr' < d)
-  where
-    addr' = addr + fromIntegral d
-
-before :: Query a -> TestM Before Before a
-before = GetBefore
-
-after :: Query a -> TestM After After a
-after = GetAfter
 
 data InitialState = InitialState
     { arg1, arg2 :: Byte
@@ -176,18 +214,10 @@ nullRAM = constRAM 0
 constRAM :: Byte -> Matrix Addr Byte
 constRAM = Matrix.forAll . const
 
-data Only a = Only{ getOnly :: Maybe a }
-
-instance Monoid (Only a) where
-    mempty = Only Nothing
-    Only mx `mappend` Only mx' = case (mx, mx') of
-        (Just _, Just _) -> error "Only"
-        _ -> Only $ mx `mplus` mx'
-
 runTest :: Test -> InitialState -> Result
-runTest (Op0 _ test) is = runTestM test [] is
-runTest (Op1 _ mkTest) is@InitialState{arg1} = runTestM (mkTest arg1) [arg1] is
-runTest (Op2 _ mkTest) is@InitialState{arg1, arg2} = runTestM (mkTest addr) [arg1, arg2] is
+runTest (Op0 _ test) is = runTestM test is
+runTest (Op1 _ mkTest) is@InitialState{arg1} = runTestM (mkTest arg1) is
+runTest (Op2 _ mkTest) is@InitialState{arg1, arg2} = runTestM (mkTest addr) is
   where
     addr = fromIntegral arg2 * 256 + fromIntegral arg1
 
@@ -206,67 +236,73 @@ findNthIndex i p | i < 1 = error "findNthIndex"
     go acc k (x:xs) | p x = go (1 + acc) (k-1) xs
                     | otherwise = go (1 + acc) k xs
 
-runTestM :: TestM Before After () -> [Byte] -> InitialState -> Result
-runTestM test args InitialState{..} =
+splitLengths :: (a -> Bool) -> Int -> [a] -> [Int]
+splitLengths splitHere = go 0
+  where
+    go _ 0 _ = []
+    go _ _ [] = []
+    go n k (x:xs) | splitHere x = n : go 1 (k-1) xs
+                  | otherwise = go (n+1) k xs
+
+splitInto :: [Int] -> [a] -> [[a]]
+splitInto [] _ = []
+splitInto (n:ns) xs = thisPart : splitInto ns nextParts
+  where
+    (thisPart, nextParts) = splitAt n xs
+
+runTestM :: TestM () -> InitialState -> Result
+runTestM test InitialState{..} =
     if null failures then succeeded
     else failed{ reason = unlines failures }
   where
-    run :: TestM from to a -> Writer (Only (Byte, Int), [(String, Bool)]) a
-    run (GetBefore query) = return $ getBefore query
-    run (GetAfter query) = return $ getAfter query
-    run (m :>>= f) = run m >>= (run . f)
-    run (Return x) = return x
-    run (Execute opcode cycles) = tell (Only $ Just (opcode, cycles), mempty)
-    run (Assert s b) = tell (mempty, [(s, b)])
+    (_, (program, checks)) = execRWS (unTestM test) () 0
 
-    (Only (Just (opcode, _cycles)), messages) = execWriter (run test)
-    failures = map fst . filter (not . snd) $ messages
+    failures = mapMaybe evalCheck checks
+      where
+        evalCheck :: Check -> Maybe String
+        evalCheck (CheckTiming _step _cycles) = Nothing -- TODO
+        evalCheck (CheckAssertion msg b) = do
+            guard $ not $ evalObs b
+            return msg
 
-    getBefore :: Query a -> a
-    getBefore (Reg A) = initialA
-    getBefore (Reg X) = initialX
-    getBefore (Reg Y) = initialY
-    getBefore (Reg P) = initialFlags
-    getBefore PC = initialPC
-    getBefore (Mem addr) = initialRAM' ! addr
+        evalObs :: Obs a -> a
+        evalObs = runIdentity . runAp (Identity . evalObs') . unObs
 
-    getAfter :: Query a -> a
-    getAfter (Reg A) = afterA
-    getAfter (Reg X) = afterX
-    getAfter (Reg Y) = afterY
-    getAfter (Reg P) = afterFlags
-    getAfter PC = afterPC
-    getAfter (Mem addr) = afterRAM ! addr
+        evalObs' :: Obs' a -> a
+        evalObs' (Query step (Coyoneda k q)) = k $ evalQuery q !! step
+
+        evalQuery :: Query a -> [a]
+        evalQuery (Reg A) = map last $ listS cpuA
+        evalQuery (Reg X) = map last $ listS cpuX
+        evalQuery (Reg Y) = map last $ listS cpuY
+        evalQuery (Reg P) = map last $ listS cpuP
+        evalQuery PC = map last $ listS cpuPC
+        evalQuery (Mem addr) = map (! evalObs addr) rams
 
     cpuIn :: CPUIn CLK
     cpuIn = CPUIn{..}
 
-    initialRAM' = initialRAM // forced
-      where
-        forced = (initialPC, opcode) : zip [initialPC + 1..] args
+    initialRAM' = initialRAM // zip [initialPC..] (concat program)
+
+    rams :: [Matrix Addr Byte]
+    rams = scanl (//) initialRAM' writes
 
     cpuMemR = rom cpuMemA (Just . (initialRAM' !))
     cpuIRQ = low
     cpuNMI = low
     cpuWait = low
 
-    numCycles = fromMaybe (error "CPU didn't fetch next instruction") $
-                findNthIndex 2 (== Fetch1) . whileJust . fromS $ cpuState
+    timings :: [Int]
+    timings = splitLengths (== Fetch1) (1 + length program) . whileJust . fromS $ cpuState
 
-    listS :: (Rep a) => Signal CLK a -> [a]
-    listS = catMaybes . take numCycles . fromS
+    listS :: (Rep a) => Signal CLK a -> [[a]]
+    listS = splitInto timings . catMaybes . fromS
 
-    writes :: [(Addr, Byte)]
-    writes = catMaybes $ listS pipe
+    writes :: [[(Addr, Byte)]]
+    writes = map catMaybes $ listS pipe
       where
         pipe = packEnabled (isEnabled cpuMemW) $
                pack (cpuMemA, enabledVal cpuMemW)
-
-    (afterA, afterX, afterY) = last $ listS $ pack (cpuA, cpuX, cpuY)
-    (afterFlags, _afterSP, afterPC) = last $ listS $ pack (cpuP, cpuSP, cpuPC)
-
-    afterRAM :: Matrix Addr Byte
-    afterRAM = initialRAM' // writes
 
     (CPUOut{..}, CPUDebug{..}) = cpu' cpuInit cpuIn
       where
