@@ -60,7 +60,7 @@ executable mos6502-kansas-lava
 
 test-suite tests
   type:                detailed-0.9
-  hs-source-dirs:      src
+  hs-source-dirs:      tests src
   test-module:         MOS6502.Tests.Main
   other-modules:
         MOS6502.Types
