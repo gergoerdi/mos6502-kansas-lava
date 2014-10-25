@@ -153,11 +153,11 @@ instance Show InitialState where
                 , line "X" initialX
                 , line "Y" initialY
                 , line "PC" initialPC
-                , line "B[@@]" $ initialRAM ! fromIntegral arg1
-                , line "B[@@,X]" $ initialRAM ! fromIntegral (arg1 + initialX)
+                , line "B[@@]" $ byteAt $ fromIntegral arg1
+                , line "B[@@,X]" $ byteAt $ fromIntegral (arg1 + initialX)
                 , line "W[@@,X]" wZPX
-                , line "B[(@@,X)]" $ initialRAM ! wZPX
-                , line "B[(@@),Y]" $ initialRAM ! wZP + initialY
+                , line "B[(@@,X)]" $ byteAt wZPX
+                , line "B[(@@),Y]" $ byteAt (wZP + fromIntegral initialY)
                 , line "B[@@@@]" $ byteAt argAddr
                 , line "W[@@@@]" $ wordAt argAddr
                 , line "W[(@@@@)]" $ wordAt (wordAt argAddr)
@@ -174,10 +174,11 @@ instance Show InitialState where
             (lo, hi) = (fromIntegral addr, fromIntegral (addr `shiftR` 8))
             addr' = toAddr (lo + 1) hi
 
-        wZP =  toAddr (initialRAM ! fromIntegral arg1)
-                      (initialRAM ! fromIntegral (arg1 + 1))
-        wZPX = toAddr (initialRAM ! fromIntegral (arg1 + initialX))
-                      (initialRAM ! fromIntegral (arg1 + initialX + 1))
+        addrAt zp =  toAddr (byteAt $ fromIntegral zp)
+                            (byteAt $ fromIntegral $ succ zp)
+
+        wZP = addrAt arg1
+        wZPX = addrAt (arg1 + initialX)
 
 toAddr :: Byte -> Byte -> Addr
 toAddr lo hi = fromIntegral hi `shiftL` 8 + fromIntegral lo
