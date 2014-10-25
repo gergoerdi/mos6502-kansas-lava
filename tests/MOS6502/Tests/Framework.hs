@@ -293,7 +293,7 @@ runTestM test InitialState{..} =
     timings = splitLengths (== Fetch1) (1 + length program) . whileJust . fromS $ cpuState
 
     listS :: (Rep a) => Signal CLK a -> [[a]]
-    listS = splitInto timings . catMaybes . fromS
+    listS = map catMaybes . splitInto timings . fromS
 
     writes :: [[(Addr, Byte)]]
     writes = map catMaybes $ listS pipe
