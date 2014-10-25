@@ -353,7 +353,9 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
               s := pureS Fetch1
           Indirect1 -> do
               rArgBuf := cpuMemR
-              rNextA := reg rNextA + 1
+              -- ZP wraps around, so if low part of address is stored
+              -- in $FF, the high part should be looked for in $00
+              rNextA := (reg rNextA + 1) .&. 0xFF
               s := pureS Indirect2
           Indirect2 -> do
               run2
