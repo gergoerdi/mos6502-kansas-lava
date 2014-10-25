@@ -103,7 +103,6 @@ benchCircuit romContents = (vram, cpuIn, cpuOut, cpuDebug)
     cpuWait = low
 
     ramR = syncRead ram (unsigned cpuMemA)
-    ramR' = forceDefined 0 ramR
 
     -- 1K of video RAM mapped from 0x0200
     isVideo = 0x0200 .<=. cpuMemA .&&. cpuMemA .<. 0x0600
@@ -121,7 +120,8 @@ benchCircuit romContents = (vram, cpuIn, cpuOut, cpuDebug)
     -- One page of ROM is mapped from 0xF000
     isROM = cpuMemA .>=. 0xF000
 
-    cpuMemR = memoryMapping 0
+    cpuMemR = forceDefined 0 $
+              memoryMapping
               [ (isROM, romR)
-              , (isRAM, ramR')
+              , (isRAM, ramR)
               ]

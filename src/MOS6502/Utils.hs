@@ -3,10 +3,9 @@ module MOS6502.Utils where
 import Language.KansasLava
 
 memoryMapping :: (Clock clk, Rep a)
-              => Signal clk a
-              -> [(Signal clk Bool, Signal clk a)]
+              => [(Signal clk Bool, Signal clk a)]
               -> Signal clk a
-memoryMapping = foldr (\(sel, v) sig -> mux (delay sel) (sig, v))
+memoryMapping = foldr (\(sel, v) sig -> mux (delay sel) (sig, v)) undefinedS
 
 -- | Non-overlapping case
 caseEx :: [Cond s c] -> RTL s c ()
