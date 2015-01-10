@@ -139,7 +139,7 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
         pushTarget = 0x0100 .|. unsigned (reg rSP)
 
     -- Flags
-    rFlags@[fN, fV, _, _fB, fD, _fI, fZ, fC] <- mapM (newReg . testBit initP) [0..7]
+    rFlags@[fN, fV, _, _fB, fD, fI, fZ, fC] <- mapM (newReg . testBit initP) [0..7]
 
     let flags0 = bitsToByte . Matrix.fromList . map var $ rFlags
         flags = flags0 .|. 0x04
@@ -284,6 +284,7 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
     WHEN (bitNot cpuWait) $
       switch (reg s) $ \state -> case state of
           Init -> do
+              fI := high
               rNextA := pureS resetVector
               s := pureS FetchVector1
           InitTest -> do
