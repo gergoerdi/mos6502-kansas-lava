@@ -187,13 +187,13 @@ decode op = Decoded{..}
     isChangeFlag = opBBB .==. [b|110|] .&&. opCC .==. [b|00|] .&&. opAAA ./=. [b|100|]
     setFlag = opAAA `elemS` [[b|001|], [b|011|], [b|111|]]
     clearFlag = bitNot setFlag
-    flag = switchS opAAA [ ([b|000|], 0) -- C
-                         , ([b|001|], 0) -- C
-                         , ([b|010|], 2) -- I
-                         , ([b|011|], 2) -- I
-                         , ([b|101|], 6) -- V
-                         , ([b|110|], 3) -- D
-                         , ([b|111|], 3) -- D
+    flag = switchS opAAA [ ([b|000|], 7) -- C
+                         , ([b|001|], 7) -- C
+                         , ([b|010|], 5) -- I
+                         , ([b|011|], 5) -- I
+                         , ([b|101|], 1) -- V
+                         , ([b|110|], 4) -- D
+                         , ([b|111|], 4) -- D
                          ]
     dSetFlag = packEnabled (isChangeFlag .&&. setFlag) flag
     dClearFlag = packEnabled (isChangeFlag .&&. clearFlag) flag

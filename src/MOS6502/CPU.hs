@@ -15,6 +15,7 @@ import Data.Sized.Matrix
 import qualified Data.Sized.Matrix as Matrix
 import Data.Bits
 import Data.Default
+import Control.Monad (zipWithM_)
 
 data CPUIn clk = CPUIn
     { cpuMemR :: Signal clk Byte
@@ -121,9 +122,9 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
     let op = var rOp
         decoded@Decoded{..} = decode op
         Addressing{..} = dAddr
+        size1 = addrNone
         size2 = addrImm .||. addrZP .||. addrIndirect
         _size3 = addrDirect
-        size1 = addrNone -- bitNot $ size2 .||. size3
 
     rArgBuf <- newReg 0x00
     let argByte = cpuMemR
@@ -138,35 +139,18 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
         pushTarget = 0x0100 .|. unsigned (reg rSP)
 
     -- Flags
-    fC <- newReg $ initP `testBit` 7
-    fZ <- newReg $ initP `testBit` 6
-    fI <- newReg $ initP `testBit` 5
-    fD <- newReg $ initP `testBit` 4
-    fB <- newReg $ initP `testBit` 3
-    fV <- newReg $ initP `testBit` 1
-    fN <- newReg $ initP `testBit` 0
+    rFlags@[fN, fV, _, _fB, fD, _fI, fZ, fC] <- mapM (newReg . testBit initP) [0..7]
 
-    let flags = bitsToByte . Matrix.fromList . reverse $
-                [ var fC
-                , var fZ
-                , var fI
-                , var fD
-                , var fB
-                , high
-                , var fV
-                , var fN
-                ]
-        setFlags mtx = do
-            let [c, z, i, d, b, _, v, n] = reverse . Matrix.toList . byteToBits $ mtx
-            fC := c
-            fZ := z
-            fI := i
-            fD := d
-            fB := b
-            fV := v
-            fN := n
+    let flags0 = bitsToByte . Matrix.fromList . map var $ rFlags
+        flags = flags0 .|. 0x04
+        writeFlags mtx = zipWithM_ (:=) rFlags (Matrix.toList . byteToBits $ mtx)
+        writeFlag b i = CASE [ IF (i .==. pureS (fromIntegral j)) $ rFlag := b
+                             | (j, rFlag) <- zip [0..] rFlags
+                             ]
+        setFlag = writeFlag high
+        clearFlag = writeFlag low
 
-        branchFlags :: Signal clk (Matrix U2 Bool)
+    let branchFlags :: Signal clk (Matrix U2 Bool)
         branchFlags = pack . Matrix.fromList . map reg $ [fN, fV, fC, fZ]
 
     rNextA <- newReg 0x0000
@@ -238,6 +222,10 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                           WHEN dWriteA $ rA := res
                           WHEN dWriteX $ rX := res
                           WHEN dWriteY $ rY := res
+                          CASE [ match dSetFlag setFlag
+                               , match dClearFlag clearFlag
+                               ]
+
                           rNextA := var rPC
                           s := pureS Fetch1
                    , IF dJSR $ do
@@ -280,7 +268,7 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                                ]
                    , OTHERWISE $ do
                           WHEN dUpdateFlags $ commitALUFlags
-                          WHEN dWriteFlags $ setFlags argByte
+                          WHEN dWriteFlags $ writeFlags argByte
                           WHEN dWriteA $ rA := res
                           WHEN dWriteX $ rX := res
                           WHEN dWriteY $ rY := res
