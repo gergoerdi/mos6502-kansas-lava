@@ -26,7 +26,7 @@ allTests = concat [ branch
     ldx = [ ldx_imm, ldx_zp, ldx_zp_y, ldx_abs, ldx_abs_y]
     ldy = [ ldy_imm, ldy_zp, ldy_zp_x, ldy_abs, ldy_abs_x]
     sta = [ sta_zp, sta_zp_x, sta_abs, sta_abs_x, sta_abs_y, sta_ind_x, sta_ind_y ]
-    transfer = [ inx, dex, iny, dey, tax, txa, tay, tya ]
+    transfer = [ inx, dex, iny, dey, tax, txa, tay, tya, txs, tsx ]
 
 nop :: Test
 nop = op0 "NOP" $ do
@@ -151,6 +151,20 @@ txa = transfer "TAX" 0x8A X A id
 
 tya :: Test
 tya = transfer "TYA" 0x98 Y A id
+
+txs :: Test
+txs = op0 "TXS" $ do
+    x <- observe regX
+    execute0 0x9A 2
+    sp <- checkFlags $ observe regSP
+    assertEq "X->SP" sp x
+
+tsx :: Test
+tsx = op0 "TSX" $ do
+    sp <- observe $ Reg SP
+    execute0 0xBA 2
+    x <- checkFlags $ observe regX
+    assertEq "SP->X" x sp
 
 lda_zp_x :: Test
 lda_zp_x = op1 "LDA zp,X" $ \zp -> do

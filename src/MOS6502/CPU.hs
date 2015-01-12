@@ -96,6 +96,7 @@ data CPUInit = CPUInit
     , initY :: Byte
     , initP :: Byte
     , initPC :: Maybe Addr
+    , initSP :: Byte
     }
 
 instance Default CPUInit where
@@ -104,6 +105,7 @@ instance Default CPUInit where
                  , initY = 0x00
                  , initP = 0x00
                  , initPC = Nothing
+                 , initSP = 0xFF
                  }
 
 cpu :: forall clk. (Clock clk) => CPUIn clk -> (CPUOut clk, CPUDebug clk)
@@ -135,7 +137,7 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
     rA <- newReg initA
     rX <- newReg initX
     rY <- newReg initY
-    rSP <- newReg 0xFF
+    rSP <- newReg initSP
     let popTarget = 0x0100 .|. unsigned (reg rSP + 1)
         pushTarget = 0x0100 .|. unsigned (reg rSP)
 

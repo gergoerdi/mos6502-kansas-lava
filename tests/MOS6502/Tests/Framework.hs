@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -Werror -fwarn-incomplete-patterns #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE RecordWildCards, NamedFieldPuns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -27,7 +28,7 @@ import Control.Applicative
 import Test.QuickCheck hiding (Result(..))
 import Test.QuickCheck.Property
 
-data Reg = A | X | Y | P deriving Show
+data Reg = A | X | Y | P | SP deriving Show
 
 data Query a where
     Reg :: Reg -> Query Byte
@@ -67,6 +68,9 @@ regY = Reg Y
 
 regPC :: Query Addr
 regPC = PC
+
+regSP :: Query Byte
+regSP = Reg SP
 
 memZP :: Obs Byte -> Query Byte
 memZP = Mem . fmap fromIntegral
@@ -141,6 +145,7 @@ data InitialState = InitialState
     { arg1, arg2 :: Byte
     , initialA, initialX, initialY, initialFlags :: Byte
     , initialPC :: Addr
+    , initialSP :: Byte
     , initialRAM :: Matrix Addr Byte
     }
 
@@ -153,6 +158,7 @@ instance Show InitialState where
                 , line "X" initialX
                 , line "Y" initialY
                 , line "PC" initialPC
+                , line "SP" initialSP
                 , line "B[@@]" $ byteAt $ fromIntegral arg1
                 , line "B[@@,X]" $ byteAt $ fromIntegral (arg1 + initialX)
                 , line "W[@@,X]" wZPX
@@ -198,6 +204,7 @@ instance Arbitrary InitialState where
         initialY <- arbitrary
         initialFlags <- arbitrary
         initialPC <- arbitrary `suchThat` (\x -> x > 0xF000 && x < 0xFF00)
+        initialSP <- arbitrary `suchThat` (> 0xE0)
         initialRAM <- arbitrary
         return InitialState{..}
 
@@ -274,6 +281,7 @@ runTestM test InitialState{..} =
         evalQuery (Reg X) = map last $ listS cpuX
         evalQuery (Reg Y) = map last $ listS cpuY
         evalQuery (Reg P) = map last $ listS cpuP
+        evalQuery (Reg SP) = map last $ listS cpuSP
         evalQuery PC = map last $ listS cpuPC
         evalQuery (Mem addr) = map (! evalObs addr) rams
 
@@ -309,4 +317,5 @@ runTestM test InitialState{..} =
                          , initY = initialY
                          , initP = initialFlags
                          , initPC = Just initialPC
+                         , initSP = initialSP
                          }
