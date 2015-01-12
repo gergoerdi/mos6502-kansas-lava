@@ -31,6 +31,7 @@ data Decoded clk = Decoded{ dAddr :: Addressing clk
                           , dReadA :: Signal clk Bool
                           , dReadX :: Signal clk Bool
                           , dReadY :: Signal clk Bool
+                          , dReadSP :: Signal clk Bool
                           , dUseBinALU :: Signal clk (Enabled BinOp)
                           , dUseUnALU :: Signal clk (Enabled UnOp)
                           , dUseCmpALU :: Signal clk Bool
@@ -38,6 +39,7 @@ data Decoded clk = Decoded{ dAddr :: Addressing clk
                           , dWriteA :: Signal clk Bool
                           , dWriteX :: Signal clk Bool
                           , dWriteY :: Signal clk Bool
+                          , dWriteSP :: Signal clk Bool
                           , dWriteMem :: Signal clk Bool
                           , dWriteFlags :: Signal clk Bool
                           , dBranch :: Signal clk (Enabled (U2, Bool))
@@ -47,6 +49,7 @@ data Decoded clk = Decoded{ dAddr :: Addressing clk
                           , dJSR :: Signal clk Bool
                           , dRTS :: Signal clk Bool
                           , dBRK :: Signal clk Bool
+                          , dRTI :: Signal clk Bool
                           }
 
 decode :: forall clk. (Clock clk) => Signal clk Byte -> Decoded clk
@@ -67,16 +70,19 @@ decode op = Decoded{..}
 
     isSTY = opCC .==. [b|00|] .&&. opAAA .==. [b|100|]
     isTXA = op .==. 0x8A
+    isTXS = op .==. 0x9a
+    isTSX = op .==. 0xba
     isLDY = opCC .==. [b|00|] .&&. opAAA .==. [b|101|]
     dJSR = op .==. 0x20
     dJump = op `elemS` [0x4C, 0x6C]
     dRTS = op .==. 0x60
     dBRK = op .==. 0x00
+    dRTI = op .==. 0x40
 
     dAddr@Addressing{..} = Addressing{..}
       where
         addrNone = muxN [ (isBinOp, low)
-                        , (isUnOp, isUnA .||. isUnX .||. isTXA)
+                        , (isUnOp, isUnA .||. isUnX .||. isTXA .||. isTXS .||. isTSX)
                         , (isBranch .||. dJump, low)
                         , (opCC .==. [b|00|] .&&. opAAA ./=. [b|000|],
                              bitNot $ opBBB `elemS` [[b|000|], [b|001|], [b|011|], [b|101|], [b|111|]])
@@ -140,8 +146,9 @@ decode op = Decoded{..}
                   , (isSTY, high)
                   , (high, low)
                   ]
+    dReadSP = isTSX
     dReadMem = muxN [ (isBinOp, bitNot $ binOp .==. pureS STA .||. addrImm)
-                    , (isUnOp, bitNot $ dReadA .||. dReadX .||. dReadY)
+                    , (isUnOp, bitNot $ dReadA .||. dReadX .||. dReadY .||. dReadSP)
                     , (isLDY, bitNot dReadA)
                     , (high, op .==. 0x6C) -- indirect JMP
                     ]
@@ -163,6 +170,7 @@ decode op = Decoded{..}
                    , (isLDY, high)
                    , (high, low)
                    ]
+    dWriteSP = isTXS
     dWriteMem = muxN [ (isBinOp, binOp .==. pureS STA)
                      , (isUnOp, unOp ./=. pureS LDX .&&. bitNot isUnA .&&. bitNot isUnX)
                      , (isSTY, bitNot dWriteA)
@@ -171,7 +179,7 @@ decode op = Decoded{..}
     dWriteFlags = op .==. 0x28 -- PLP
 
     dUpdateFlags = muxN [ (isBinOp, binOp ./=. pureS STA)
-                        , (isUnOp, bitNot $ unOp .==. pureS STX .&&. opBBB ./=. [b|010|] )
+                        , (isUnOp, bitNot $ unOp .==. pureS STX .&&. bitNot (opBBB `elemS` [[b|010|], [b|110|]]))
                         , (dUseCmpALU, high)
                         , (isLDY, high)
                         , (op `elemS` [0xE8, 0xC8], high) -- INX, INY

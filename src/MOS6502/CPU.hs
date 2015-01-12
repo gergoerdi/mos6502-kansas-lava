@@ -173,6 +173,7 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                      , (dReadA, reg rA)
                      , (dReadX, reg rX)
                      , (dReadY, reg rY)
+                     , (dReadSP, reg rSP)
                      ]
 
     let cmpArg = muxN [ (dReadX, reg rX)
@@ -242,6 +243,7 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                           WHEN dWriteA $ rA := res
                           WHEN dWriteX $ rX := res
                           WHEN dWriteY $ rY := res
+                          WHEN dWriteSP $ rSP := res
                           CASE [ match dSetFlag setFlag
                                , match dClearFlag clearFlag
                                ]
@@ -271,7 +273,12 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                               ]
     let addr2 = argWord + unsigned addrPostOffset
     let run2 = do
-            caseEx [ IF (op `elemS` [0x24, 0x2C]) $ do -- BIT
+            caseEx [ IF dRTI $ do
+                          writeFlags argByte
+                          rSP := reg rSP + 2
+                          rNextA := popTarget
+                          s := pureS FetchVector1
+                   , IF (op `elemS` [0x24, 0x2C]) $ do -- BIT
                           fZ := (reg rA .&. argByte) .==. 0
                           fV := argByte `testABit` 6
                           fN := argByte `testABit` 7
@@ -326,6 +333,10 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                             rSP := reg rSP + 2
                             rNextA := popTarget
                             s := pureS FetchVector1
+                     , IF dRTI $ do
+                            rSP := reg rSP + 1
+                            rNextA := popTarget
+                            s := pureS WaitRead
                      , IF (op `elemS` [0x48, 0x08]) $ do -- PHA, PHP
                             rSP := reg rSP - 1
                             rNextA := pushTarget
@@ -382,6 +393,7 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
               s := pureS Fetch1
           WaitPushInt -> do
               rNextA := reg rPC
+              fI := high
               s := pureS FetchVector1
           Halt -> do
               s := pureS Halt
