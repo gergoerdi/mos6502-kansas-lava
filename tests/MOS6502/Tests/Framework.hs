@@ -286,8 +286,8 @@ runTestM test InitialState{..} =
     rams = tail $ scanl (//) initialRAM' writes
 
     cpuMemR = rom cpuMemA (Just . (initialRAM' !))
-    cpuIRQ = low
-    cpuNMI = low
+    cpuIRQ = high
+    cpuNMI = high
     cpuWait = low
 
     timings :: [Int]

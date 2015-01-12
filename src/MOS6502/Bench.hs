@@ -70,13 +70,15 @@ testBench fileName = bench . programToROM 0xF000 <$> BS.readFile fileName
 
 programToROM :: Addr -> BS.ByteString -> (Addr -> Byte)
 programToROM startingAddr bs addr
-  | addr == 0xFFFC = fromIntegral (startingAddr .&. 0xFF)
-  | addr == 0xFFFD = fromIntegral (startingAddr `shiftR` 8)
+  | addr == 0xFFFC = startLo
+  | addr == 0xFFFD = startHi
   | offset < 0 = 0
   | offset >= BS.length bs = 0
   | otherwise = fromIntegral $ BS.index bs offset
   where
     offset = fromIntegral $ addr - startingAddr
+    startLo = fromIntegral startingAddr
+    startHi = fromIntegral (startingAddr `shiftR` 8)
 
 forceDefined :: (Clock clk, Rep a) => a -> Signal clk a -> Signal clk a
 forceDefined def = shallowMapS (fmap (optX . (<|> Just def) . unX))

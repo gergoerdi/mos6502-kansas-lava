@@ -46,6 +46,7 @@ data Decoded clk = Decoded{ dAddr :: Addressing clk
                           , dJump :: Signal clk Bool
                           , dJSR :: Signal clk Bool
                           , dRTS :: Signal clk Bool
+                          , dBRK :: Signal clk Bool
                           }
 
 decode :: forall clk. (Clock clk) => Signal clk Byte -> Decoded clk
@@ -70,6 +71,7 @@ decode op = Decoded{..}
     dJSR = op .==. 0x20
     dJump = op `elemS` [0x4C, 0x6C]
     dRTS = op .==. 0x60
+    dBRK = op .==. 0x00
 
     dAddr@Addressing{..} = Addressing{..}
       where

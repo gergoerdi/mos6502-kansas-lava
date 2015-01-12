@@ -33,3 +33,9 @@ switchS sig = foldr (\(x,y) sig' -> mux (sig .==. pureS x) (sig', y)) undefinedS
 muxN :: (Clock clk, Rep a)
      => [(Signal clk Bool, Signal clk a)] -> Signal clk a
 muxN = foldr (\(b, y) sig -> mux b (sig, y)) undefinedS
+
+fallingEdge :: (Clock clk) => Signal clk Bool -> Signal clk Bool
+fallingEdge sig = runRTL $ do
+    prev <- newReg True
+    prev := sig
+    return $ reg prev .&&. bitNot sig

@@ -59,8 +59,9 @@ data State = Halt
            | WaitRead
            | WaitPushAddr
            | WaitWrite
+           | WaitPushInt
            deriving (Show, Eq, Enum, Bounded)
-type StateSize = X13
+type StateSize = X14
 
 instance Rep State where
     type W State = X4 -- W StateSize
@@ -153,6 +154,13 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
     let branchFlags :: Signal clk (Matrix U2 Bool)
         branchFlags = pack . Matrix.fromList . map reg $ [fN, fV, fC, fZ]
 
+    -- Interrupts
+    nmi <- newReg False
+    WHEN (fallingEdge cpuNMI) $ nmi := high
+    let irq = bitNot cpuIRQ .&&. bitNot (reg fI)
+    let interrupt = reg nmi .|. irq .|. dBRK
+    servicingNMI <- newReg False
+
     rNextA <- newReg 0x0000
     rNextW <- newReg Nothing
 
@@ -205,6 +213,16 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                           WHEN branchCond $ do
                               rPC := reg rPC + signed argByte + 1
                           s := pureS Fetch1
+                   , IF interrupt $ do
+                          rArgBuf := unsigned (reg rPC)
+                          rSP := reg rSP - 2
+                          rNextA := pushTarget
+                          rNextW := enabledS $ unsigned (reg rPC `shiftR` 8)
+                          rPC := mux (reg nmi) (pureS nmiVector, pureS irqVector)
+                          nmi := low
+                          servicingNMI := reg nmi
+                          s := pureS WaitPushAddr
+                          -- s := pureS Halt
                    , IF dJump $ do
                           CASE [ IF dReadMem $ do
                                       rNextA := argWord
@@ -225,7 +243,6 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                           CASE [ match dSetFlag setFlag
                                , match dClearFlag clearFlag
                                ]
-
                           rNextA := var rPC
                           s := pureS Fetch1
                    , IF dJSR $ do
@@ -303,9 +320,7 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
               s := pureS Fetch1
           Fetch1 -> do
               rOp := cpuMemR
-              caseEx [ IF (op .==. 0x00) $ do -- TODO: BRK
-                            s := pureS Halt
-                     , IF dRTS $ do
+              caseEx [ IF dRTS $ do
                             rSP := reg rSP + 2
                             rNextA := popTarget
                             s := pureS FetchVector1
@@ -318,12 +333,10 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                             rSP := reg rSP + 1
                             rNextA := popTarget
                             s := pureS WaitRead
-                     , OTHERWISE $ do
-                            WHEN (op .==. 0x00) $ s := pureS Halt
-                            WHEN size1 run1
+                     , IF size1 $ do
+                            run1
+                            s := pureS Fetch1
                      ]
-              WHEN size1 $ do
-                  s := pureS Fetch1
               rPC := reg rPC + 1
               rNextA := var rPC
               s := pureS Fetch2
@@ -357,8 +370,17 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
               rNextW := enabledS (reg rArgBuf)
               s := pureS WaitWrite
           WaitWrite -> do
+              WHEN interrupt $ do
+                  rSP := reg rSP - 1
+                  rNextA := pushTarget
+                  -- set B on BRK only
+                  rNextW := enabledS $ mux (reg servicingNMI .||. irq) (flags .|. 0x08, flags)
+                  s := pureS WaitPushInt
               rNextA := reg rPC
               s := pureS Fetch1
+          WaitPushInt -> do
+              rNextA := reg rPC
+              s := pureS FetchVector1
           Halt -> do
               s := pureS Halt
 
