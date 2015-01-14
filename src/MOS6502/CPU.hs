@@ -142,13 +142,13 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
         pushTarget = 0x0100 .|. unsigned (reg rSP)
 
     -- Flags
-    rFlags@[fN, fV, _, _fB, fD, fI, fZ, fC] <- mapM (newReg . testBit initP) [0..7]
+    rFlags@[fN, fV, _, _fB, fD, fI, fZ, fC] <- fmap reverse $ mapM (newReg . testBit initP) [0..7]
 
-    let flags0 = bitsToByte . Matrix.fromList . map var $ rFlags
-        flags = flags0 .|. 0x04
+    let flags0 = bitsToByte . Matrix.fromList . map var . reverse $ rFlags
+        flags = flags0 .|. 0x20
         writeFlags mtx = zipWithM_ (:=) rFlags (Matrix.toList . byteToBits $ mtx)
         writeFlag b i = CASE [ IF (i .==. pureS (fromIntegral j)) $ rFlag := b
-                             | (j, rFlag) <- zip [0..] rFlags
+                             | (j, rFlag) <- zip [0..] (reverse rFlags)
                              ]
         setFlag = writeFlag high
         clearFlag = writeFlag low
