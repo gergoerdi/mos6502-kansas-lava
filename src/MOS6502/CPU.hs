@@ -44,6 +44,8 @@ data CPUDebug clk = CPUDebug
     , cpuPC :: Signal clk Addr
     , cpuOp :: Signal clk Byte
     , cpuDecoded :: Decoded clk
+    , cpuIRQQueue :: Signal clk Bool
+    , cpuNMIQueue:: Signal clk Bool
     }
 
 data State = Halt
@@ -119,6 +121,7 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
             Nothing -> (Init, 0x0000) -- PC to be filled in by Init
             Just pc -> (InitTest, pc)
     s <- newReg s0
+    let ready = bitNot $ reg s `elemS` [Init, InitTest]
     rPC <- newReg pc0
 
     rOp <- newReg 0x00
@@ -158,11 +161,11 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
 
     -- Interrupts
     nmi <- newReg False
-    WHEN (fallingEdge cpuNMI) $ nmi := high
-    let irq = bitNot cpuIRQ .&&. bitNot (reg fI)
-    let interrupt = reg nmi .|. irq .|. dBRK
+    irq <- newReg False
+    let interrupt = reg nmi .|. reg irq .|. dBRK
     servicingNMI <- newReg False
-
+    servicingIRQ <- newReg False
+    let servicingInterrupt = reg servicingNMI .||. reg servicingIRQ .||. dBRK
     rNextA <- newReg 0x0000
     rNextW <- newReg Nothing
 
@@ -216,16 +219,6 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                           WHEN branchCond $ do
                               rPC := reg rPC + signed argByte + 1
                           s := pureS Fetch1
-                   , IF interrupt $ do
-                          rArgBuf := unsigned (reg rPC)
-                          rSP := reg rSP - 2
-                          rNextA := pushTarget
-                          rNextW := enabledS $ unsigned (reg rPC `shiftR` 8)
-                          rPC := mux (reg nmi) (pureS irqVector, pureS nmiVector)
-                          nmi := low
-                          servicingNMI := reg nmi
-                          s := pureS WaitPushAddr
-                          -- s := pureS Halt
                    , IF dJump $ do
                           CASE [ IF dReadMem $ do
                                       rNextA := argWord
@@ -329,7 +322,19 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
               s := pureS Fetch1
           Fetch1 -> do
               rOp := cpuMemR
-              caseEx [ IF dRTS $ do
+              irq := low
+              nmi := low
+              caseEx [ IF interrupt $ do
+                            rArgBuf := unsigned (reg rPC)
+                            rSP := reg rSP - 2
+                            rNextA := pushTarget
+                            rNextW := enabledS $ unsigned (reg rPC `shiftR` 8)
+                            rPC := mux (reg nmi) (pureS irqVector, pureS nmiVector)
+                            servicingNMI := reg nmi
+                            servicingIRQ := reg irq
+                            s := pureS WaitPushAddr
+                            -- s := pureS Halt
+                     , IF dRTS $ do
                             rSP := reg rSP + 2
                             rNextA := popTarget
                             s := pureS FetchVector1
@@ -383,20 +388,26 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
               rNextW := enabledS (reg rArgBuf)
               s := pureS WaitWrite
           WaitWrite -> do
-              WHEN interrupt $ do
+              WHEN servicingInterrupt $ do
                   rSP := reg rSP - 1
                   rNextA := pushTarget
                   -- set B on BRK only
-                  rNextW := enabledS $ mux (reg servicingNMI .||. irq) (flags .|. 0x08, flags)
+                  rNextW := enabledS $ mux (reg servicingNMI .||. reg servicingIRQ) (flags .|. 0x08, flags)
                   s := pureS WaitPushInt
               rNextA := reg rPC
               s := pureS Fetch1
           WaitPushInt -> do
               rNextA := reg rPC
-              fI := high
+              -- fI := high
+              servicingNMI := low
+              servicingIRQ := low
               s := pureS FetchVector1
           Halt -> do
               s := pureS Halt
+
+    WHEN ready $ do
+        WHEN (fallingEdge cpuNMI) $ nmi := high
+        WHEN (bitNot cpuIRQ .&&. bitNot (reg fI)) $ irq := high
 
     rNextW := disabledS
 
@@ -414,6 +425,8 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
         cpuSP = var rSP
         cpuP = flags
         cpuPC = var rPC
+        cpuIRQQueue = reg irq
+        cpuNMIQueue = reg nmi
 
     return (CPUOut{..}, CPUDebug{..})
 
