@@ -121,7 +121,7 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
             Nothing -> (Init, 0x0000) -- PC to be filled in by Init
             Just pc -> (InitTest, pc)
     s <- newReg s0
-    let ready = bitNot $ reg s `elemS` [Init, InitTest]
+    let ready = bitNot $ reg s `elemS` [Init, InitTest, Halt]
     rPC <- newReg pc0
 
     rOp <- newReg 0x00
