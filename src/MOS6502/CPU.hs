@@ -162,10 +162,14 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
     -- Interrupts
     nmi <- newReg False
     irq <- newReg False
+    WHEN ready $ do
+        WHEN (fallingEdge cpuNMI) $ nmi := high
+        WHEN (bitNot cpuIRQ .&&. bitNot (reg fI)) $ irq := high
     let interrupt = reg nmi .|. reg irq .|. dBRK
     servicingNMI <- newReg False
     servicingIRQ <- newReg False
     let servicingInterrupt = reg servicingNMI .||. reg servicingIRQ .||. dBRK
+
     rNextA <- newReg 0x0000
     rNextW <- newReg Nothing
 
@@ -405,10 +409,6 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
               s := pureS FetchVector1
           Halt -> do
               s := pureS Halt
-
-    WHEN ready $ do
-        WHEN (fallingEdge cpuNMI) $ nmi := high
-        WHEN (bitNot cpuIRQ .&&. bitNot (reg fI)) $ irq := high
 
     rNextW := disabledS
 
