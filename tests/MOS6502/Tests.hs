@@ -37,8 +37,8 @@ checkFlags :: TestM (Obs Byte) -> TestM (Obs Byte)
 checkFlags query = do
     b <- query
     flags <- observe statusFlags
-    let z = (`testBit` 6) <$> flags
-        n = (`testBit` 0) <$> flags
+    let z = (`testBit` 1) <$> flags
+        n = (`testBit` 7) <$> flags
     assertEq "Z flag is correctly set" z ((==) <$> b <*> 0)
     assertEq "N flag is correctly set" n ((`testBit` 7) <$> b)
     return b
@@ -128,28 +128,28 @@ binALU_imm name opcode fun = op1 (unwords [name, "imm"]) $ \imm -> do
     assertEq "A is updated" a' (fun <$> a <*> pure imm)
 
 beq :: Test
-beq = branch "BEQ" 0xF0 (`testBit` 6)
+beq = branch "BEQ" 0xF0 (`testBit` 1)
 
 bne :: Test
-bne = branch "BNE" 0xD0 $ not . (`testBit` 6)
+bne = branch "BNE" 0xD0 $ not . (`testBit` 1)
 
 bcs :: Test
-bcs = branch "BCS" 0xB0 (`testBit` 7)
+bcs = branch "BCS" 0xB0 (`testBit` 0)
 
 bcc :: Test
-bcc = branch "BCC" 0x90 $ not . (`testBit` 7)
+bcc = branch "BCC" 0x90 $ not . (`testBit` 0)
 
 bvs :: Test
-bvs = branch "BVS" 0x70 (`testBit` 1)
+bvs = branch "BVS" 0x70 (`testBit` 6)
 
 bvc :: Test
-bvc = branch "BVS" 0x50 $ not . (`testBit` 1)
+bvc = branch "BVS" 0x50 $ not . (`testBit` 6)
 
 bmi :: Test
-bmi = branch "BMI" 0x30 (`testBit` 0)
+bmi = branch "BMI" 0x30 (`testBit` 7)
 
 bpl :: Test
-bpl = branch "BPL" 0x10 $ not . (`testBit` 0)
+bpl = branch "BPL" 0x10 $ not . (`testBit` 7)
 
 dex :: Test
 dex = transfer "DEX" 0xCA X X (subtract 1)
