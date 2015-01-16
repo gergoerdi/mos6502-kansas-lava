@@ -50,6 +50,7 @@ data Decoded clk = Decoded{ dAddr :: Addressing clk
                           , dRTS :: Signal clk Bool
                           , dBRK :: Signal clk Bool
                           , dRTI :: Signal clk Bool
+                          , dBIT :: Signal clk Bool
                           }
 
 decode :: forall clk. (Clock clk) => Signal clk Byte -> Decoded clk
@@ -78,6 +79,7 @@ decode op = Decoded{..}
     dRTS = op .==. 0x60
     dBRK = op .==. 0x00
     dRTI = op .==. 0x40
+    dBIT = op `elemS` [0x24, 0x2C]
 
     dAddr@Addressing{..} = Addressing{..}
       where
@@ -150,6 +152,7 @@ decode op = Decoded{..}
     dReadMem = muxN [ (isBinOp, bitNot $ binOp .==. pureS STA .||. addrImm)
                     , (isUnOp, bitNot $ dReadA .||. dReadX .||. dReadY .||. dReadSP)
                     , (isLDY, bitNot dReadA)
+                    , (dBIT, addrDirect)
                     , (high, op .==. 0x6C) -- indirect JMP
                     ]
 

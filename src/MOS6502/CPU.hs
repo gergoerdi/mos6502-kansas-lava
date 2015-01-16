@@ -211,6 +211,13 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
     let addr1 = mux (addrZP .||. addrIndirect)
                       (argWord + unsigned addrPreOffset,
                        unsigned $ argByte + addrPreOffset)
+        runBIT = IF dBIT $ do
+            fZ := (reg rA .&. argByte) .==. 0
+            fV := argByte `testABit` 6
+            fN := argByte `testABit` 7
+            rNextA := reg rPC
+            s := pureS Fetch1
+
         run1 = do
             caseEx [ match dBranch $ \branch -> do
                           let (selector, target) = unpack branch
@@ -259,6 +266,7 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                           rNextA := addr1
                           rNextW := enabledS res
                           s := pureS WaitWrite
+                   , runBIT
                    ]
 
     let addrPostOffset = muxN [ (addrPostAddY, reg rY)
@@ -271,12 +279,7 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                           rSP := reg rSP + 2
                           rNextA := popTarget
                           s := pureS FetchVector1
-                   , IF (op `elemS` [0x24, 0x2C]) $ do -- BIT
-                          fZ := (reg rA .&. argByte) .==. 0
-                          fV := argByte `testABit` 6
-                          fN := argByte `testABit` 7
-                          rNextA := reg rPC
-                          s := pureS Fetch1
+                   , runBIT
                    , IF (addrIndirect .&&. reg s .==. pureS Indirect2) $ do
                           rNextA := addr2
                           CASE [ IF dWriteMem $ do

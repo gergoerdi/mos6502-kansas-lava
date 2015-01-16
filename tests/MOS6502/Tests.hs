@@ -5,7 +5,7 @@ module MOS6502.Tests where
 
 import MOS6502.Tests.Framework
 import MOS6502.Types
-import Data.Bits
+import Data.Bits hiding (bit)
 import Data.Sized.Signed (S8)
 import Control.Applicative
 
@@ -17,6 +17,7 @@ allTests = concat [ branch
                   , ldy
                   , [nop]
                   , sta
+                  , bit
                   , transfer
                   ]
   where
@@ -41,6 +42,28 @@ checkFlags query = do
     assertEq "Z flag is correctly set" z ((==) <$> b <*> 0)
     assertEq "N flag is correctly set" n ((`testBit` 7) <$> b)
     return b
+
+bit :: [Test]
+bit = [ bit_imm, bit_abs ]
+  where
+    bit_imm = op1 "BIT imm" $ \imm -> do
+        bit (pure imm) (execute1 0x24 imm 3)
+
+    bit_abs = op2 "BIT abs" $ \addr -> do
+        b <- observe $ mem (pure addr)
+        bit b (execute2 0x2C addr 4)
+
+    bit b execute = do
+        a <- observe regA
+        let a' = liftA2 (.&.) a b
+        execute
+        flags <- observe statusFlags
+        let z = (`testBit` 1) <$> flags
+            n = (`testBit` 7) <$> flags
+            v = (`testBit` 6) <$> flags
+        assertEq "Z flag is correctly set" z ((==) <$> a' <*> 0)
+        assertEq "N flag is correctly copied" n ((`testBit` 7) <$> b)
+        assertEq "V flag is correctly copied" v ((`testBit` 6) <$> b)
 
 transfer :: String -> Byte -> Reg -> Reg -> (Byte -> Byte) -> Test
 transfer label opcode from to fun = op0 label $ do
