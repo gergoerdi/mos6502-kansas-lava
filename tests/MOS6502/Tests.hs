@@ -44,10 +44,11 @@ checkFlags query = do
     return b
 
 bit :: [Test]
-bit = [ bit_imm, bit_abs ]
+bit = [ bit_zp, bit_abs ]
   where
-    bit_imm = op1 "BIT imm" $ \imm -> do
-        bit (pure imm) (execute1 0x24 imm 3)
+    bit_zp = op1 "BIT zp" $ \zp -> do
+        b <- observe $ memZP (pure zp)
+        bit b (execute1 0x24 zp 3)
 
     bit_abs = op2 "BIT abs" $ \addr -> do
         b <- observe $ mem (pure addr)

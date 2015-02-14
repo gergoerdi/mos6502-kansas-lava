@@ -93,7 +93,7 @@ decode op = Decoded{..}
         addrImm = muxN [ (isBinOp, opBBB .==. [b|010|])
                        , (isUnOp, opBBB .==. [b|000|])
                        , (isBranch, high)
-                       , (opCC .==. [b|00|], (bitNot (dJSR .||. dRTS) .&&. opBBB .==. [b|000|]) .||. op .==. 0x24)
+                       , (opCC .==. [b|00|], (bitNot (dJSR .||. dRTS) .&&. opBBB .==. [b|000|]))
                        , (high, low)
                        ]
         addrZP = opBBB `elemS` [[b|001|], [b|101|]]
@@ -152,7 +152,7 @@ decode op = Decoded{..}
     dReadMem = muxN [ (isBinOp, bitNot $ binOp .==. pureS STA .||. addrImm)
                     , (isUnOp, bitNot $ dReadA .||. dReadX .||. dReadY .||. dReadSP)
                     , (isLDY, bitNot dReadA)
-                    , (dBIT, addrDirect)
+                    , (dBIT, high)
                     , (high, op .==. 0x6C) -- indirect JMP
                     ]
 
