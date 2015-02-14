@@ -18,6 +18,7 @@ allTests = concat [ branch
                   , [nop]
                   , sta
                   , bit
+                  , cmp
                   , transfer
                   ]
   where
@@ -42,6 +43,22 @@ checkFlags query = do
     assertEq "Z flag is correctly set" z ((==) <$> b <*> 0)
     assertEq "N flag is correctly set" n ((`testBit` 7) <$> b)
     return b
+
+cmp :: [Test]
+cmp = [ {- cmp_imm, cmp_zp, cmp_zp_z, cmp_abs, cmp_abs_x, cmp_abs_y, cmp_ind_x, -} cmp_ind_y ]
+  where
+    cmp_ind_y = op1 "CMP (zp),Y" $ \zp -> do
+        y <- observe regY
+        addr <- derefZP $ pure zp
+        let (addr', bankFault) = offset addr y
+        b <- observe $ mem addr'
+        cmp b $ execute1 0xD1 zp (5 + costly bankFault)
+
+    cmp b execute = do
+        a <- observe regA
+        execute
+        checkFlags $ return $ a - b
+        return ()
 
 bit :: [Test]
 bit = [ bit_zp, bit_abs ]
