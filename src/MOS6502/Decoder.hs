@@ -154,6 +154,7 @@ decode op = Decoded{..}
     dReadSP = isTSX
     dReadMem = muxN [ (isBinOp, bitNot $ binOp .==. pureS STA .||. addrImm)
                     , (isUnOp, bitNot $ dReadA .||. dReadX .||. dReadY .||. dReadSP)
+                    , (dUseCmpALU, opAAA `elemS` [[b|110|]] .&&. bitNot addrImm)
                     , (isLDY, bitNot dReadA)
                     , (dBIT, high)
                     , (high, op .==. 0x6C) -- indirect JMP

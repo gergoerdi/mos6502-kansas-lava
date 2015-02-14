@@ -19,6 +19,7 @@ allTests = concat [ branch
                   , sta
                   , bit
                   , cmp
+                  , cpy
                   , transfer
                   ]
   where
@@ -58,6 +59,26 @@ cmp = [ {- cmp_imm, cmp_zp, cmp_zp_z, cmp_abs, cmp_abs_x, cmp_abs_y, cmp_ind_x, 
         a <- observe regA
         execute
         checkFlags $ return $ a - b
+        return ()
+
+cpy :: [Test]
+cpy = [ cpy_imm, cpy_zp, cpy_abs ]
+  where
+    cpy_imm = op1 "CPY imm" $ \imm -> do
+        cpy (pure imm) $ execute1 0xC0 imm 2
+
+    cpy_zp = op1 "CPY zp" $ \zp -> do
+        b <- observe $ memZP (pure zp)
+        cpy b $ execute1 0xC4 zp 3
+
+    cpy_abs = op2 "CPY abs" $ \addr -> do
+        b <- observe $ mem (pure addr)
+        cpy b $ execute2 0xCC addr 4
+
+    cpy b execute = do
+        y <- observe regY
+        execute
+        checkFlags $ return $ y - b
         return ()
 
 bit :: [Test]
