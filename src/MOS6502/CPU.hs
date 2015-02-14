@@ -236,7 +236,7 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                                       rPC := argWord
                                       s := pureS Fetch1
                                ]
-                   , IF addrPop $ do
+                   , IF dPop $ do
                           rSP := reg rSP + 1
                           rNextA := popTarget
                           s := pureS WaitRead
@@ -346,12 +346,12 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                             rSP := reg rSP + 1
                             rNextA := popTarget
                             s := pureS WaitRead
-                     , IF (op `elemS` [0x48, 0x08]) $ do -- PHA, PHP
+                     , IF dPush $ do
                             rSP := reg rSP - 1
                             rNextA := pushTarget
                             rNextW := enabledS $ mux (op .==. 0x08) (reg rA, flags)
                             s := pureS WaitWrite
-                     , IF (op `elemS` [0x68, 0x28]) $ do -- PLA, PLP
+                     , IF dPop $ do
                             rSP := reg rSP + 1
                             rNextA := popTarget
                             s := pureS WaitRead

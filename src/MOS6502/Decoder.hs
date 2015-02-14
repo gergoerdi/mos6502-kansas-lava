@@ -23,7 +23,6 @@ data Addressing clk = Addressing{ addrNone :: Signal clk Bool
                                 , addrPostAddY :: Signal clk Bool
                                 , addrIndirect :: Signal clk Bool
                                 , addrDirect :: Signal clk Bool
-                                , addrPop :: Signal clk Bool
                                 }
 
 data Decoded clk = Decoded{ dAddr :: Addressing clk
@@ -51,6 +50,8 @@ data Decoded clk = Decoded{ dAddr :: Addressing clk
                           , dBRK :: Signal clk Bool
                           , dRTI :: Signal clk Bool
                           , dBIT :: Signal clk Bool
+                          , dPush :: Signal clk Bool
+                          , dPop :: Signal clk Bool
                           }
 
 decode :: forall clk. (Clock clk) => Signal clk Byte -> Decoded clk
@@ -80,6 +81,9 @@ decode op = Decoded{..}
     dBRK = op .==. 0x00
     dRTI = op .==. 0x40
     dBIT = op `elemS` [0x24, 0x2C]
+
+    dPush = op `elemS` [0x48, 0x08]
+    dPop = op `elemS` [0x68, 0x28]
 
     dAddr@Addressing{..} = Addressing{..}
       where
@@ -113,7 +117,6 @@ decode op = Decoded{..}
         addrDirect = muxN [ (isBinOp, opBBB `elemS` [[b|011|], [b|110|], [b|111|]])
                           , (high,  dJSR .||. opBBB `elemS` [[b|011|], [b|111|]])
                           ]
-        addrPop = op `elemS` [ 0x68, 0x28 ] -- PLA, PLP
 
     dUseBinALU = packEnabled isBinOp binOp
     dUseUnALU = muxN [ (isUnOp, enabledS unOp)
@@ -188,6 +191,7 @@ decode op = Decoded{..}
                         , (op `elemS` [0xE8, 0xC8], high) -- INX, INY
                         , (op `elemS` [0xCA, 0x88], high) -- DEX, DEY
                         , (op `elemS` [0x98], high) -- TYA
+                        , (dPop, high)
                         , (high, low)
                         ]
 
