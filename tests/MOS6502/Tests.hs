@@ -6,7 +6,8 @@ module MOS6502.Tests where
 import MOS6502.Tests.Framework
 import MOS6502.Types
 import Data.Bits hiding (bit)
-import Data.Sized.Signed (S8)
+import Data.Sized.Signed (S8, S9)
+import Data.Sized.Unsigned (U9)
 import Control.Applicative
 
 allTests :: [Test]
@@ -21,6 +22,9 @@ allTests = concat [ branch
                   , cmp
                   , cpy
                   , transfer
+                  , adc
+                  , sbc
+                  , [sec, clc]
                   ]
   where
     branch = [ beq, bne, bcs, bcc, bvs, bvc, bmi, bpl ]
@@ -80,6 +84,90 @@ cpy = [ cpy_imm, cpy_zp, cpy_abs ]
         execute
         checkFlags $ return $ y - b
         return ()
+
+sec :: Test
+sec = op0 "SEC" $ do
+    flags <- observe statusFlags
+    execute0 0x38 2
+    flags' <- observe statusFlags
+    assertEq "C flag is set" flags' $ (.|. 0x01) <$> flags
+
+clc :: Test
+clc = op0 "CLC" $ do
+    flags <- observe statusFlags
+    execute0 0x18 2
+    flags' <- observe statusFlags
+    assertEq "C flag is cleared" flags' $ (.&. 0xFE) <$> flags
+
+adc :: [Test]
+adc = [ adc_imm, adc_zp ]
+  where
+    adc_imm = op1 "ADC imm" $ \imm -> do
+        adc (pure imm) $ execute1 0x69 imm 2
+
+    adc_zp = op1 "ADC zp" $ \zp -> do
+        b <- observe $ memZP (pure zp)
+        adc b $ execute1 0x65 zp 3
+
+    adc b execute = do
+        a <- observe regA
+        flags <- observe statusFlags
+        let c = (`testBit` 0) <$> flags
+            sum :: (Num a) => Obs a
+            sum = addC <$> c <*> (fromIntegral <$> a) <*> (fromIntegral <$> b)
+        execute
+        a' <- checkFlags $ observe regA
+        (c', v') <- do
+            flags' <- observe statusFlags
+            return ((`testBit` 0) <$> flags', (`testBit` 6) <$> flags')
+        assertEq "A is correctly set" a' sum
+        assertEq "C flag is correctly set" c' $ carry <$> sum
+        assertEq "V flag is correctly set" v' $ overflow <$> sum
+      where
+        addC :: (Num a) => Bool -> a -> a -> a
+        addC c x y = (if c then (+1) else id) (x + y)
+
+        carry :: U9 -> Bool
+        carry x = x `testBit` 8
+
+        overflow :: S9 -> Bool
+        overflow x = x < fromIntegral (minBound :: S8) ||
+                     x > fromIntegral (maxBound :: S8)
+
+sbc :: [Test]
+sbc = [ sbc_imm, sbc_zp ]
+  where
+    sbc_imm = op1 "SBC imm" $ \imm -> do
+        sbc (pure imm) $ execute1 0xE9 imm 2
+
+    sbc_zp = op1 "SBC zp" $ \zp -> do
+        b <- observe $ memZP (pure zp)
+        sbc b $ execute1 0xE5 zp 3
+
+    sbc b execute = do
+        a <- observe regA
+        flags <- observe statusFlags
+        let c = (`testBit` 0) <$> flags
+            diff :: (Num a) => Obs a
+            diff = subC <$> c <*> (fromIntegral <$> a) <*> (fromIntegral <$> b)
+        execute
+        a' <- checkFlags $ observe regA
+        (c', v') <- do
+            flags' <- observe statusFlags
+            return ((`testBit` 0) <$> flags', (`testBit` 6) <$> flags')
+        assertEq "A is correctly set" a' diff
+        assertEq "C flag is correctly set" c' $ carry <$> diff
+        assertEq "V flag is correctly set" v' $ overflow <$> diff
+      where
+        subC :: (Num a) => Bool -> a -> a -> a
+        subC c x y = (if c then (+1) else id) (x - y - 1)
+
+        carry :: U9 -> Bool
+        carry x = x `testBit` 8
+
+        overflow :: S9 -> Bool
+        overflow x = x < fromIntegral (minBound :: S8) ||
+                     x > fromIntegral (maxBound :: S8)
 
 bit :: [Test]
 bit = [ bit_zp, bit_abs ]

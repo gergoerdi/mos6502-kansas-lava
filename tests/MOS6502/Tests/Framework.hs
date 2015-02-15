@@ -159,6 +159,7 @@ instance Show InitialState where
                 , line "Y" initialY
                 , line "PC" initialPC
                 , line "SP" initialSP
+                , line "Flags" initialFlags
                 , line "B[@@]" $ byteAt $ fromIntegral arg1
                 , line "B[@@,X]" $ byteAt $ fromIntegral (arg1 + initialX)
                 , line "W[@@,X]" wZPX
@@ -190,7 +191,10 @@ toAddr :: Byte -> Byte -> Addr
 toAddr lo hi = fromIntegral hi `shiftL` 8 + fromIntegral lo
 
 showHex_ :: (Show a, Integral a) => a -> String
-showHex_ x = "$" <> (map toUpper $ showHex x "")
+showHex_ x = "$" <> (padLeft 2 '0' $ map toUpper $ showHex x "")
+
+padLeft :: Int -> a -> [a] -> [a]
+padLeft n x xs = replicate (n - length xs) x ++ xs
 
 instance (Size ix) => Arbitrary (Unsigned ix) where
     arbitrary = elements [minBound..maxBound]
