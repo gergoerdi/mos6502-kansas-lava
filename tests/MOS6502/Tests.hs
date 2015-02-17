@@ -20,6 +20,7 @@ allTests = concat [ branch
                   , sta
                   , bit
                   , cmp
+                  , cpx
                   , cpy
                   , transfer
                   , adc
@@ -64,6 +65,26 @@ cmp = [ {- cmp_imm, cmp_zp, cmp_zp_z, cmp_abs, cmp_abs_x, cmp_abs_y, cmp_ind_x, 
         a <- observe regA
         execute
         checkFlags $ return $ a - b
+        return ()
+
+cpx :: [Test]
+cpx = [ cpx_imm, cpx_zp, cpx_abs ]
+  where
+    cpx_imm = op1 "CPX imm" $ \imm -> do
+        cpx (pure imm) $ execute1 0xE0 imm 2
+
+    cpx_zp = op1 "CPX zp" $ \zp -> do
+        b <- observe $ memZP (pure zp)
+        cpx b $ execute1 0xE4 zp 3
+
+    cpx_abs = op2 "CPX abs" $ \addr -> do
+        b <- observe $ mem (pure addr)
+        cpx b $ execute2 0xEC addr 4
+
+    cpx b execute = do
+        x <- observe regX
+        execute
+        checkFlags $ return $ x - b
         return ()
 
 cpy :: [Test]
