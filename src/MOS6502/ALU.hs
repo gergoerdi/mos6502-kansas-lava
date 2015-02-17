@@ -7,7 +7,7 @@ import MOS6502.Types
 import MOS6502.Utils
 
 import Language.KansasLava
-import Data.Sized.Unsigned
+import Data.Sized.Signed
 import Data.Sized.Matrix
 import Data.Bits
 
@@ -228,7 +228,7 @@ addExtend :: (Clock clk)
           => Signal clk Bool
           -> Signal clk Byte
           -> Signal clk Byte
-          -> Signal clk U9
+          -> Signal clk S9
 addExtend c x y = unsigned x + unsigned y + unsigned c
 
 addCarry :: (Clock clk)
@@ -236,26 +236,33 @@ addCarry :: (Clock clk)
          -> Signal clk Byte
          -> Signal clk Byte
          -> (Signal clk Bool, Signal clk Bool, Signal clk Byte)
-addCarry c x y = (carry, overflow, unsigned z)
+addCarry c x y = (carry, overflow, z')
   where
     z = addExtend c x y
+    z' = signed z
+
     carry = testABit z 8
-    overflow = bitNot $ 0x80 .<=. z .&&. z .<. 0x180
+    -- http://www.righto.com/2012/12/the-6502-overflow-flag-explained.html
+    overflow = ((x `xor` z') .&. (y `xor` z') .&. 0x80) ./=. 0x00
 
 subExtend :: (Clock clk)
           => Signal clk Bool
           -> Signal clk Byte
           -> Signal clk Byte
-          -> Signal clk U9
+          -> Signal clk S9
 subExtend c x y = unsigned x - unsigned y - unsigned (bitNot c)
 
-subCarry :: (Clock clk)
+subCarry :: forall clk. (Clock clk)
          => Signal clk Bool
          -> Signal clk Byte
          -> Signal clk Byte
          -> (Signal clk Bool, Signal clk Bool, Signal clk Byte)
-subCarry c x y = (carry, overflow, unsigned z)
+subCarry c x y = (bitNot carry, overflow, z')
   where
     z = subExtend c x y
+    z' = signed z
+
     carry = testABit z 8
-    overflow = -128 .<=. z .&&. z .<. 128
+    -- http://www.righto.com/2012/12/the-6502-overflow-flag-explained.html
+    overflow = ((x `xor` z') .&. (y' `xor` z') .&. 0x80) ./=. 0x00
+    y' = 0xff - y

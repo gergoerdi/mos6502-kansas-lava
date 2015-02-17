@@ -122,7 +122,7 @@ adc = [ adc_imm, adc_zp ]
             return ((`testBit` 0) <$> flags', (`testBit` 6) <$> flags')
         assertEq "A is correctly set" a' sum
         assertEq "C flag is correctly set" c' $ carry <$> sum
-        assertEq "V flag is correctly set" v' $ overflow <$> sum
+        assertEq "V flag is correctly set" v' $ overflow <$> c <*> a <*> b
       where
         addC :: (Num a) => Bool -> a -> a -> a
         addC c x y = (if c then (+1) else id) (x + y)
@@ -130,9 +130,14 @@ adc = [ adc_imm, adc_zp ]
         carry :: U9 -> Bool
         carry x = x `testBit` 8
 
-        overflow :: S9 -> Bool
-        overflow x = x < fromIntegral (minBound :: S8) ||
-                     x > fromIntegral (maxBound :: S8)
+        overflow :: Bool -> Byte -> Byte -> Bool
+        overflow c x y = z < fromIntegral (minBound :: S8) ||
+                         z > fromIntegral (maxBound :: S8)
+          where
+            z = addC c (toS9 x) (toS9 y)
+
+            toS9 :: Byte -> S9
+            toS9 x = fromIntegral (fromIntegral x :: S8)
 
 sbc :: [Test]
 sbc = [ sbc_imm, sbc_zp ]
@@ -157,17 +162,23 @@ sbc = [ sbc_imm, sbc_zp ]
             return ((`testBit` 0) <$> flags', (`testBit` 6) <$> flags')
         assertEq "A is correctly set" a' diff
         assertEq "C flag is correctly set" c' $ carry <$> diff
-        assertEq "V flag is correctly set" v' $ overflow <$> diff
+        assertEq "V flag is correctly set" v' $ overflow <$> c <*> a <*> b
       where
         subC :: (Num a) => Bool -> a -> a -> a
         subC c x y = (if c then (+1) else id) (x - y - 1)
 
         carry :: U9 -> Bool
-        carry x = x `testBit` 8
+        carry x = not $ x `testBit` 8
 
-        overflow :: S9 -> Bool
-        overflow x = x < fromIntegral (minBound :: S8) ||
-                     x > fromIntegral (maxBound :: S8)
+        overflow :: Bool -> Byte -> Byte -> Bool
+        overflow c x y = z < fromIntegral (minBound :: S8) ||
+                         z > fromIntegral (maxBound :: S8)
+          where
+            z = subC c (toS9 x) (toS9 y)
+
+            toS9 :: Byte -> S9
+            toS9 x = fromIntegral (fromIntegral x :: S8)
+
 
 bit :: [Test]
 bit = [ bit_zp, bit_abs ]
