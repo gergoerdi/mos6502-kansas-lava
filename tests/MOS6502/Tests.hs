@@ -24,6 +24,7 @@ allTests = concat [ branch
                   , transfer
                   , adc
                   , sbc
+                  , ror
                   , [sec, clc]
                   ]
   where
@@ -179,6 +180,21 @@ sbc = [ sbc_imm, sbc_zp ]
             toS9 :: Byte -> S9
             toS9 x = fromIntegral (fromIntegral x :: S8)
 
+ror :: [Test]
+ror = [ ror_a ]
+  where
+    ror_a = op0 "ROR A" $ do
+        a <- observe regA
+        c <- fmap (`testBit` 0) <$> observe statusFlags
+        execute0 0x6a 2
+        a' <- checkFlags $ observe regA
+        c' <- fmap (`testBit` 0) <$> observe statusFlags
+        assertEq "A is correctly set" a' $ rotate <$> c <*> a
+        assertEq "C flag is correctly set" c' $ (`testBit` 0) <$> a
+      where
+        rotate c x = applyC $ x `shiftR` 1
+          where
+            applyC y = if c then y .|. 0x80 else y
 
 bit :: [Test]
 bit = [ bit_zp, bit_abs ]
