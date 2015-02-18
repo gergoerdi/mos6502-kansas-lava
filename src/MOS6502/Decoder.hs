@@ -24,6 +24,7 @@ data Addressing clk = Addressing{ addrNone :: Signal clk Bool
                                 , addrIndirect :: Signal clk Bool
                                 , addrDirect :: Signal clk Bool
                                 }
+                    deriving Show
 
 data Decoded clk = Decoded{ dAddr :: Addressing clk
                           , dReadMem :: Signal clk Bool
@@ -53,6 +54,7 @@ data Decoded clk = Decoded{ dAddr :: Addressing clk
                           , dPush :: Signal clk Bool
                           , dPop :: Signal clk Bool
                           }
+                 deriving Show
 
 decode :: forall clk. (Clock clk) => Signal clk Byte -> Decoded clk
 decode op = Decoded{..}
