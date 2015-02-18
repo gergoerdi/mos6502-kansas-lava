@@ -52,8 +52,15 @@ checkFlags query = do
     return b
 
 cmp :: [Test]
-cmp = [ {- cmp_imm, cmp_zp, cmp_zp_z, cmp_abs, cmp_abs_x, cmp_abs_y, cmp_ind_x, -} cmp_ind_y ]
+cmp = [ cmp_imm, cmp_zp, {- cmp_zp_z, cmp_abs, cmp_abs_x, cmp_abs_y, cmp_ind_x, -} cmp_ind_y ]
   where
+    cmp_imm = op1 "CMP imm" $ \imm -> do
+        testCompare regA (pure imm) $ execute1 0xC9 imm 2
+
+    cmp_zp = op1 "CMP zp" $ \zp -> do
+        b <- observe $ memZP (pure zp)
+        testCompare regA b $ execute1 0xC5 zp 3
+
     cmp_ind_y = op1 "CMP (zp),Y" $ \zp -> do
         y <- observe regY
         addr <- derefZP $ pure zp
