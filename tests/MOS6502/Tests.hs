@@ -59,53 +59,44 @@ cmp = [ {- cmp_imm, cmp_zp, cmp_zp_z, cmp_abs, cmp_abs_x, cmp_abs_y, cmp_ind_x, 
         addr <- derefZP $ pure zp
         let (addr', bankFault) = offset addr y
         b <- observe $ mem addr'
-        cmp b $ execute1 0xD1 zp (5 + costly bankFault)
+        testCompare regA b $ execute1 0xD1 zp (5 + costly bankFault)
 
-    cmp b execute = do
-        a <- observe regA
-        execute
-        checkFlags $ return $ a - b
-        return ()
+testCompare :: Query Byte -> Obs Byte -> TestM () -> TestM ()
+testCompare reg b execute = do
+    r <- observe reg
+    execute
+    c' <- fmap (`testBit` 0) <$> observe statusFlags
+    checkFlags $ return $ r - b
+    assertEq "C flag is correctly set" c' $ liftA2 (>=) r b
+    return ()
 
 cpx :: [Test]
 cpx = [ cpx_imm, cpx_zp, cpx_abs ]
   where
     cpx_imm = op1 "CPX imm" $ \imm -> do
-        cpx (pure imm) $ execute1 0xE0 imm 2
+        testCompare regX (pure imm) $ execute1 0xE0 imm 2
 
     cpx_zp = op1 "CPX zp" $ \zp -> do
         b <- observe $ memZP (pure zp)
-        cpx b $ execute1 0xE4 zp 3
+        testCompare regX b $ execute1 0xE4 zp 3
 
     cpx_abs = op2 "CPX abs" $ \addr -> do
         b <- observe $ mem (pure addr)
-        cpx b $ execute2 0xEC addr 4
-
-    cpx b execute = do
-        x <- observe regX
-        execute
-        checkFlags $ return $ x - b
-        return ()
+        testCompare regX b $ execute2 0xEC addr 4
 
 cpy :: [Test]
 cpy = [ cpy_imm, cpy_zp, cpy_abs ]
   where
     cpy_imm = op1 "CPY imm" $ \imm -> do
-        cpy (pure imm) $ execute1 0xC0 imm 2
+        testCompare regY (pure imm) $ execute1 0xC0 imm 2
 
     cpy_zp = op1 "CPY zp" $ \zp -> do
         b <- observe $ memZP (pure zp)
-        cpy b $ execute1 0xC4 zp 3
+        testCompare regY b $ execute1 0xC4 zp 3
 
     cpy_abs = op2 "CPY abs" $ \addr -> do
         b <- observe $ mem (pure addr)
-        cpy b $ execute2 0xCC addr 4
-
-    cpy b execute = do
-        y <- observe regY
-        execute
-        checkFlags $ return $ y - b
-        return ()
+        testCompare regY b $ execute2 0xCC addr 4
 
 sec :: Test
 sec = op0 "SEC" $ do
