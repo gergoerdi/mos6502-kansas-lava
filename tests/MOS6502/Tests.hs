@@ -23,10 +23,8 @@ allTests = concat [ branch
                   , cpx
                   , cpy
                   , transfer
-                  , adc
-                  , sbc
-                  , ror
-                  , [sec, clc]
+                  , arithmetics
+                  , flags
                   ]
   where
     branch = [ beq, bne, bcs, bcc, bvs, bvc, bmi, bpl ]
@@ -36,6 +34,8 @@ allTests = concat [ branch
     ldy = [ ldy_imm, ldy_zp, ldy_zp_x, ldy_abs, ldy_abs_x]
     sta = [ sta_zp, sta_zp_x, sta_abs, sta_abs_x, sta_abs_y, sta_ind_x, sta_ind_y ]
     transfer = [ inx, dex, iny, dey, tax, txa, tay, tya, txs, tsx ]
+    arithmetics = concat [ adc, sbc, ror ]
+    flags = [ sec, clc ]
 
 nop :: Test
 nop = op0 "NOP" $ do
