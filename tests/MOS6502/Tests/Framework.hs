@@ -245,13 +245,12 @@ findNthIndex i p | i < 1 = error "findNthIndex"
     go acc k (x:xs) | p x = go (1 + acc) (k-1) xs
                     | otherwise = go (1 + acc) k xs
 
-splitLengths :: (a -> Bool) -> Int -> [a] -> [Int]
+splitLengths :: (a -> Bool) -> [a] -> [Int]
 splitLengths splitHere = go 0
   where
-    go _ 0 _ = []
-    go _ _ [] = []
-    go n k (x:xs) | splitHere x = n : go 1 (k-1) xs
-                  | otherwise = go (n+1) k xs
+    go _ [] = []
+    go n (x:xs) | splitHere x = n : go 1 xs
+                | otherwise = go (n+1) xs
 
 splitInto :: [Int] -> [a] -> [[a]]
 splitInto [] _ = []
@@ -278,15 +277,15 @@ runTestM test InitialState{..} =
         evalObs = runIdentity . runAp (Identity . evalObs') . unObs
 
         evalObs' :: Obs' a -> a
-        evalObs' (Query step (Coyoneda k q)) = k $ evalQuery q !! step
+        evalObs' (Query step (Coyoneda k q)) = k $ evalQuery q !! (step + 1)
 
         evalQuery :: Query a -> [a]
-        evalQuery (Reg A) = map last $ listS cpuA
-        evalQuery (Reg X) = map last $ listS cpuX
-        evalQuery (Reg Y) = map last $ listS cpuY
-        evalQuery (Reg P) = map last $ listS cpuP
-        evalQuery (Reg SP) = map last $ listS cpuSP
-        evalQuery PC = map last $ listS cpuPC
+        evalQuery (Reg A) = map head $ listS cpuA
+        evalQuery (Reg X) = map head $ listS cpuX
+        evalQuery (Reg Y) = map head $ listS cpuY
+        evalQuery (Reg P) = map head $ listS cpuP
+        evalQuery (Reg SP) = map head $ listS cpuSP
+        evalQuery PC = map head $ listS cpuPC
         evalQuery (Mem addr) = map (! evalObs addr) rams
 
     cpuIn :: CPUIn CLK
@@ -303,7 +302,7 @@ runTestM test InitialState{..} =
     cpuWait = low
 
     timings :: [Int]
-    timings = splitLengths (== Fetch1) (1 + length program) . whileJust . fromS $ cpuState
+    timings = take (2 + length program) . splitLengths (== Fetch1) . whileJust . fromS $ cpuState
 
     listS :: (Rep a) => Signal CLK a -> [[a]]
     listS = map catMaybes . splitInto timings . fromS
