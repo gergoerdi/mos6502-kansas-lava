@@ -17,10 +17,10 @@ library
   exposed-modules:
         MOS6502.Types
         MOS6502.CPU
+        MOS6502.Utils
   other-modules:
         MOS6502.ALU
         MOS6502.Decoder
-        MOS6502.Utils
 
   build-depends:
         base >=4.7 && < 5,

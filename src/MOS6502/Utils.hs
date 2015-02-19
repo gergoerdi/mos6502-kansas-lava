@@ -39,3 +39,9 @@ fallingEdge sig = runRTL $ do
     prev <- newReg True
     prev := sig
     return $ reg prev .&&. bitNot sig
+
+risingEdge :: (Clock clk) => Signal clk Bool -> Signal clk Bool
+risingEdge sig = runRTL $ do
+    prev <- newReg False
+    prev := sig
+    return $ bitNot (reg prev) .&&. sig
