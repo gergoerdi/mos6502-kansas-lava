@@ -2,11 +2,11 @@ name:                mos6502-kansas-lava
 version:             0.0.0.0
 synopsis:            Implementation of the MOS 6502 microprocessor in Kansas Lava
 -- description:
-license:             GPL-2
+license:             BSD3
 license-file:        LICENSE
-copyright:           (C) 2014 Gergo Erdi
-author:              Gergo Erdi
-maintainer:          Gergo Erdi <gergo@erdi.hu>
+copyright:           (C) 2014 Gergő Érdi <gergo@erdi.hu>
+author:              Gergő Érdi
+maintainer:          Gergő Érdi <gergo@erdi.hu>
 category:            Hardware
 build-type:          Simple
 extra-source-files:  README.md
