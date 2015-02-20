@@ -25,6 +25,7 @@ allTests = concat [ branch
                   , transfer
                   , arithmetics
                   , flags
+                  , stack
                   ]
   where
     branch = [ beq, bne, bcs, bcc, bvs, bvc, bmi, bpl ]
@@ -357,10 +358,35 @@ txs = op0 "TXS" $ do
 
 tsx :: Test
 tsx = op0 "TSX" $ do
-    sp <- observe $ Reg SP
+    sp <- observe regSP
     execute0 0xBA 2
     x <- checkFlags $ observe regX
     assertEq "SP->X" x sp
+
+stack :: [Test]
+stack = [php, plp]
+  where
+    php = op0 "PHP" $ do
+        flags <- observe statusFlags
+        sp <- observe regSP
+        execute0 0x08 3
+        sp' <- observe regSP
+        pushed <- observe $ mem (stackAddr <$> sp)
+        assertEq "Stack pointer is decremented" sp' (pred <$> sp)
+        assertEq "Status is correctly pushed" pushed flags
+
+    plp = op0 "PLP" $ do
+        sp <- observe regSP
+        popped <- observe $ mem (stackAddr <$> (succ <$> sp))
+        execute0 0x28 4
+        sp' <- observe regSP
+        flags <- observe statusFlags
+        assertEq "Stack pointer is incremented" sp' (succ <$> sp)
+        assertEq "Status is correctly restored" flags (fixup <$> popped)
+      where
+        fixup p = p .|. 0x20
+
+    stackAddr sp = fromIntegral sp + 0x100
 
 lda_zp_x :: Test
 lda_zp_x = op1 "LDA zp,X" $ \zp -> do

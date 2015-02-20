@@ -149,7 +149,7 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
 
     let flags0 = bitsToByte . Matrix.fromList . map reg . reverse $ rFlags
         flags = flags0 .|. 0x20
-        writeFlags mtx = zipWithM_ (:=) rFlags (Matrix.toList . byteToBits $ mtx)
+        writeFlags mtx = zipWithM_ (:=) (reverse rFlags) (Matrix.toList . byteToBits $ mtx)
         writeFlag b i = CASE [ IF (i .==. pureS (fromIntegral j)) $ rFlag := b
                              | (j, rFlag) <- zip [0..] (reverse rFlags)
                              ]

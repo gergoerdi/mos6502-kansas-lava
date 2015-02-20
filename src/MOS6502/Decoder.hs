@@ -195,7 +195,7 @@ decode op = Decoded{..}
                         , (op `elemS` [0xE8, 0xC8], high) -- INX, INY
                         , (op `elemS` [0xCA, 0x88], high) -- DEX, DEY
                         , (op `elemS` [0x98], high) -- TYA
-                        , (dPop, high)
+                        , (dPop, op .==. 0x68)
                         , (high, low)
                         ]
 

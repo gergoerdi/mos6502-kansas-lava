@@ -168,6 +168,7 @@ instance Show InitialState where
                 , line "B[@@@@]" $ byteAt argAddr
                 , line "W[@@@@]" $ wordAt argAddr
                 , line "W[(@@@@)]" $ wordAt (wordAt argAddr)
+                , line "B[top]" $ byteAt (0x100 + (fromIntegral $ initialSP + 1))
                 ]
       where
         line s v = unwords [s, "=", showHex_ v]
