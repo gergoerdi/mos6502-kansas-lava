@@ -36,12 +36,12 @@ muxN = foldr (\(b, y) sig -> mux b (sig, y)) undefinedS
 
 fallingEdge :: (Clock clk) => Signal clk Bool -> Signal clk Bool
 fallingEdge sig = runRTL $ do
-    prev <- newReg True
+    prev <- newReg False
     prev := sig
     return $ reg prev .&&. bitNot sig
 
 risingEdge :: (Clock clk) => Signal clk Bool -> Signal clk Bool
 risingEdge sig = runRTL $ do
-    prev <- newReg False
+    prev <- newReg True
     prev := sig
     return $ bitNot (reg prev) .&&. sig
