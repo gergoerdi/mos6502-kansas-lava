@@ -308,6 +308,7 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
     WHEN (bitNot cpuWait) $
       switch (reg s) $ \state -> case state of
           Init -> do
+              fI := high
               rNextA := pureS resetVector
               s := pureS FetchVector1
           InitTest -> do
