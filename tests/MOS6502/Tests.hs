@@ -35,7 +35,7 @@ allTests = concat [ branch
     ldy = [ ldy_imm, ldy_zp, ldy_zp_x, ldy_abs, ldy_abs_x]
     sta = [ sta_zp, sta_zp_x, sta_abs, sta_abs_x, sta_abs_y, sta_ind_x, sta_ind_y ]
     transfer = [ inx, dex, iny, dey, tax, txa, tay, tya, txs, tsx ]
-    arithmetics = concat [ adc, sbc, ror ]
+    arithmetics = concat [ adc, sbc, ror, dec ]
     flags = [ sec, clc ]
 
 nop :: Test
@@ -215,6 +215,21 @@ ror = [ ror_a ]
         rotate c x = applyC $ x `shiftR` 1
           where
             applyC y = if c then y .|. 0x80 else y
+
+dec :: [Test]
+dec = [ dec_zp, dec_abs ]
+  where
+    dec_zp = op1 "DEC zp" $ \zp ->
+      dec (memZP $ pure zp) $ execute1 0xC6 zp 5
+
+    dec_abs = op2 "DEC abs" $ \addr -> do
+      dec (mem $ pure addr) $ execute2 0xCE addr 6
+
+    dec target execute = do
+        b <- observe target
+        execute
+        b' <- checkFlags $ observe target
+        assertEq "Target is decremented" b' $ subtract 1 <$> b
 
 bit :: [Test]
 bit = [ bit_zp, bit_abs ]
