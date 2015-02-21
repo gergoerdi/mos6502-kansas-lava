@@ -295,7 +295,7 @@ runTestM test InitialState{..} =
     initialRAM' = initialRAM // zip [initialPC..] (concat program)
 
     rams :: [Matrix Addr Byte]
-    rams = tail $ scanl (//) initialRAM' writes
+    rams = scanl (//) initialRAM' writes
 
     cpuMemR = rom cpuMemA (Just . (initialRAM' !))
     cpuIRQ = high
