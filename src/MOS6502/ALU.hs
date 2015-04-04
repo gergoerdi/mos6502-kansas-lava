@@ -8,6 +8,7 @@ import MOS6502.Utils
 
 import Language.KansasLava
 import Data.Sized.Signed
+import Data.Sized.Unsigned
 import Data.Sized.Matrix
 import Data.Bits
 
@@ -123,7 +124,7 @@ binaryALU :: forall clk. (Clock clk)
           => Signal clk BinOp
           -> ALUIn clk -> Signal clk Byte -> Signal clk Byte
           -> (ALUOut clk, Signal clk Byte)
-binaryALU op ALUIn{..} arg1 arg2 = (ALUOut{..}, result)
+binaryALU op flags arg1 arg2 = (ALUOut{..}, result)
   where
     (result, aluOutC, aluOutV) = unpack $ ops .!. bitwise op
 
@@ -148,7 +149,7 @@ binaryALU op ALUIn{..} arg1 arg2 = (ALUOut{..}, result)
     eorS = logicS xor
     adcS = (z, enabledS c, enabledS v)
       where
-        (c, v, z) = addCarry aluInC arg1 arg2
+        (c, v, z) = addCarry flags arg1 arg2
     sbcS = (z, enabledS c, enabledS v)
       where
         (c, v, z) = sub
@@ -232,11 +233,21 @@ addExtend :: (Clock clk)
 addExtend c x y = unsigned x + unsigned y + unsigned c
 
 addCarry :: (Clock clk)
-         => Signal clk Bool
+         => ALUIn clk
          -> Signal clk Byte
          -> Signal clk Byte
          -> (Signal clk Bool, Signal clk Bool, Signal clk Byte)
-addCarry c x y = (carry, overflow, z')
+addCarry ALUIn{..} x y = unpack $ mux aluInD (bin, dec)
+  where
+    bin = addCarryBin aluInC x y
+    dec = addCarryDec aluInC x y
+
+addCarryBin :: (Clock clk)
+            => Signal clk Bool
+            -> Signal clk Byte
+            -> Signal clk Byte
+            -> Signal clk (Bool, Bool, Byte)
+addCarryBin c x y = pack (carry, overflow, z')
   where
     z = addExtend c x y
     z' = signed z
@@ -244,6 +255,33 @@ addCarry c x y = (carry, overflow, z')
     carry = testABit z 8
     -- http://www.righto.com/2012/12/the-6502-overflow-flag-explained.html
     overflow = ((x `xor` z') .&. (y `xor` z') .&. 0x80) ./=. 0x00
+
+addCarryDec :: forall clk. (Clock clk)
+            => Signal clk Bool
+            -> Signal clk Byte
+            -> Signal clk Byte
+            -> Signal clk (Bool, Bool, Byte)
+addCarryDec c x y = pack (carry, overflow, z)
+  where
+    loX, hiX, loY, hiY :: Signal clk U4
+    (loX, hiX) = unappendS x
+    (loY, hiY) = unappendS y
+
+    loZ :: Signal clk U5
+    loZ = unsigned c + unsigned loX + unsigned loY
+
+    loC = loZ .>. 0x9
+
+    loZ' :: Signal clk U4
+    loZ' = mux loC (unsigned loZ, unsigned (loZ + 6))
+
+    hiZ :: Signal clk U5
+    hiZ = unsigned loC + unsigned hiX + unsigned hiY
+
+    z = appendS loZ' (unsigned hiZ :: Signal clk U4)
+
+    carry = testABit hiZ 4
+    overflow = low -- TODO
 
 subExtend :: (Clock clk)
           => Signal clk Bool
