@@ -152,12 +152,10 @@ binaryALU op flags arg1 arg2 = (ALUOut{..}, result)
         (c, v, z) = addCarry flags arg1 arg2
     sbcS = (z, enabledS c, enabledS v)
       where
-        (c, v, z) = sub
+        (c, v, z) = subCarry flags arg1 arg2
     staS = logicS (\x _ -> x)
     ldaS = logicS (\_ y -> y)
     cmpS = (arg1 - arg2, enabledS $ arg1 .>=. arg2, disabledS)
-
-    sub = subCarry aluInC arg1 arg2
 
 data UnOp = ASL
           | ROL
@@ -291,13 +289,13 @@ subExtend :: (Clock clk)
 subExtend c x y = unsigned x - unsigned y - unsigned (bitNot c)
 
 subCarry :: forall clk. (Clock clk)
-         => Signal clk Bool
+         => ALUIn clk
          -> Signal clk Byte
          -> Signal clk Byte
          -> (Signal clk Bool, Signal clk Bool, Signal clk Byte)
-subCarry c x y = (bitNot carry, overflow, z')
+subCarry ALUIn{..} x y = (bitNot carry, overflow, z')
   where
-    z = subExtend c x y
+    z = subExtend aluInC x y
     z' = signed z
 
     carry = testABit z 8
