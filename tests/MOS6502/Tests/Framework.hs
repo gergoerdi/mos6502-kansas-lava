@@ -55,7 +55,7 @@ instance (Num a) => Num (Obs a) where
     signum = liftA signum
 
 data Check = CheckTiming Step (Obs Int)
-           | CheckAssertion String (Obs Bool)
+           | CheckAssertion (Obs String) (Obs Bool)
 
 regA :: Query Byte
 regA = Reg A
@@ -113,9 +113,11 @@ testLabel (Op0 lab _) = lab
 testLabel (Op1 lab _) = lab
 testLabel (Op2 lab _) = lab
 
+assert' :: Obs String -> Obs Bool -> TestM ()
+assert' s b = TestM $ tell (mempty, [CheckAssertion s b])
+
 assert :: String -> Obs Bool -> TestM ()
-assert s b = TestM $ do
-    tell (mempty, [CheckAssertion s b])
+assert s = assert' (pure s)
 
 offset :: Obs Addr -> Obs Byte -> (Obs Addr, Obs Bool)
 offset addr d = let res = offset' <$> addr <*> d
@@ -125,7 +127,9 @@ offset addr d = let res = offset' <$> addr <*> d
                      in (addr', fromIntegral addr' < d)
 
 assertEq :: (Eq a, Show a) => String -> Obs a -> Obs a -> TestM ()
-assertEq s x y = assert s ((==) <$> x <*> y)
+assertEq s x y = assert' (msg <$> x <*> y) ((==) <$> x <*> y)
+  where
+    msg x y = unlines [s <> ":", unwords [show x, "/=", show y]]
 
 observe :: Query a -> TestM (Obs a)
 observe q = TestM $ do
@@ -272,7 +276,7 @@ runTestM test InitialState{..} =
         evalCheck (CheckTiming _step _cycles) = Nothing -- TODO
         evalCheck (CheckAssertion msg b) = do
             guard $ not $ evalObs b
-            return msg
+            return $ evalObs msg
 
         evalObs :: Obs a -> a
         evalObs = runIdentity . runAp (Identity . evalObs') . unObs
