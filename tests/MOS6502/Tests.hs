@@ -124,14 +124,15 @@ adc :: [Test]
 adc = [ adc_imm, adc_zp ]
   where
     adc_imm = op1 "ADC imm" $ \imm -> do
-        adc (pure imm) $ execute1 0x69 imm 2
+        adc False (pure imm) $ execute1 0x69 imm 2
 
     adc_zp = op1 "ADC zp" $ \zp -> do
         b <- observe $ memZP (pure zp)
-        adc b $ execute1 0x65 zp 3
+        adc False b $ execute1 0x65 zp 3
 
-    adc b execute = do
+    adc bcd b execute = do
         a <- observe regA
+        execute0 (if bcd then 0xF8 else 0xD8) 2
         flags <- observe statusFlags
         let c = (`testBit` 0) <$> flags
             sum :: (Num a) => Obs a
@@ -164,15 +165,16 @@ sbc :: [Test]
 sbc = [ sbc_imm, sbc_zp ]
   where
     sbc_imm = op1 "SBC imm" $ \imm -> do
-        sbc (pure imm) $ execute1 0xE9 imm 2
+        sbc False (pure imm) $ execute1 0xE9 imm 2
 
     sbc_zp = op1 "SBC zp" $ \zp -> do
         b <- observe $ memZP (pure zp)
-        sbc b $ execute1 0xE5 zp 3
+        sbc False b $ execute1 0xE5 zp 3
 
-    sbc b execute = do
+    sbc bcd b execute = do
         a <- observe regA
         flags <- observe statusFlags
+        execute0 (if bcd then 0xF8 else 0xD8) 2
         let c = (`testBit` 0) <$> flags
             diff :: (Num a) => Obs a
             diff = subC <$> c <*> (fromIntegral <$> a) <*> (fromIntegral <$> b)
