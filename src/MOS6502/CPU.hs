@@ -149,6 +149,10 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
 
     let flags0 = bitsToByte . Matrix.fromList . map reg . reverse $ rFlags
         flags = flags0 .|. 0x20
+
+        flagsBRK = flags .|. 0x10 -- B flag is always pushed as 1
+        flagsIRQ = flags .&. (complement 0x10)
+
         writeFlags mtx = zipWithM_ (:=) (reverse rFlags) (Matrix.toList . byteToBits $ mtx)
         writeFlag b i = CASE [ IF (i .==. pureS (fromIntegral j)) $ rFlag := b
                              | (j, rFlag) <- zip [0..] (reverse rFlags)
@@ -350,7 +354,7 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                      , IF dPush $ do
                             rSP := reg rSP - 1
                             rNextA := pushTarget
-                            rNextW := enabledS $ mux (op .==. 0x08) (reg rA, flags)
+                            rNextW := enabledS $ mux (op .==. 0x08) (reg rA, flagsBRK)
                             s := pureS WaitWrite
                      , IF dPop $ do
                             rSP := reg rSP + 1
@@ -397,7 +401,7 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                   rSP := reg rSP - 1
                   rNextA := pushTarget
                   -- set B on BRK only
-                  rNextW := enabledS $ mux (reg servicingNMI .||. reg servicingIRQ) (flags .|. 0x08, flags)
+                  rNextW := enabledS $ mux (reg servicingNMI .||. reg servicingIRQ) (flagsBRK, flagsIRQ)
                   s := pureS WaitPushInt
               rNextA := reg rPC
               s := pureS Fetch1
