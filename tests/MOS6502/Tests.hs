@@ -390,7 +390,7 @@ stack = [php, plp]
         sp' <- observe regSP
         pushed <- observe $ mem (stackAddr <$> sp)
         assertEq "Stack pointer is decremented" sp' (pred <$> sp)
-        assertEq "Status is correctly pushed" pushed flags
+        assertEq "Status is correctly pushed" pushed ((.|. 0x10) <$> flags)
 
     plp = op0 "PLP" $ do
         sp <- observe regSP
