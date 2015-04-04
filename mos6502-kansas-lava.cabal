@@ -69,6 +69,7 @@ test-suite tests
         MOS6502.Decoder
         MOS6502.Utils
         MOS6502.Tests.Framework
+        MOS6502.Tests.AllSuiteA
         MOS6502.Tests
 
   build-depends:
@@ -77,6 +78,7 @@ test-suite tests
         sized-types >=0.3,
         binary-literal-qq >= 1.0 && < 1.1,
         data-default,
+        bytestring,
 
         mtl,
         QuickCheck >= 2.7 && < 2.8,
