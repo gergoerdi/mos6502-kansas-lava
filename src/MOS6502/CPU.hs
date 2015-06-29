@@ -166,10 +166,17 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
     -- Interrupts
     nmi <- newReg False
     irq <- newReg False
+    let interrupt = reg nmi .||. (bitNot (reg fI) .&&. reg irq) .||. dBRK
+
     WHEN ready $ do
-        WHEN (fallingEdge cpuNMI) $ nmi := high
-        WHEN (bitNot cpuIRQ .&&. bitNot (reg fI)) $ irq := high
-    let interrupt = reg nmi .|. reg irq .|. dBRK
+        CASE [ IF interrupt $ do
+                    irq := low
+                    nmi := low
+             , OTHERWISE $ do
+                    WHEN (fallingEdge cpuNMI) $ nmi := high
+                    WHEN (bitNot cpuIRQ) $ irq := high
+             ]
+
     servicingNMI <- newReg False
     servicingIRQ <- newReg False
     let servicingInterrupt = reg servicingNMI .||. reg servicingIRQ .||. dBRK
@@ -331,8 +338,6 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
               s := pureS Fetch1
           Fetch1 -> do
               rOp := cpuMemR
-              irq := low
-              nmi := low
               caseEx [ IF interrupt $ do
                             rSP := reg rSP - 2
                             rNextA := pushTarget
@@ -410,7 +415,7 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
               s := pureS Fetch1
           WaitPushInt -> do
               rNextA := reg rPC
-              -- fI := high
+              fI := high
               servicingNMI := low
               servicingIRQ := low
               s := pureS FetchVector1
