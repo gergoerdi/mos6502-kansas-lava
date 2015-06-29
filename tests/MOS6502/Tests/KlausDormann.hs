@@ -68,10 +68,11 @@ suiteResult image = if trapPC `elem` targetPCs then Pass
                     else Fail $ showAddr trapPC
   where
     (pc, ram, CPUDebug{..}) = circuit image
-    sig = pack (pc, syncRead ram 0x0203, pack (cpuState, cpuA, cpuIRQQueue))
-    pcs = [ pc | Just (pc, iSrc, (Fetch1, a, irqq)) <- fromS sig
+    sig = pack (pc, syncRead ram 0x0203, pack (cpuState, cpuA, cpuP))
+    pcs = [ pc | Just (pc, iSrc, (Fetch1, a, p)) <- fromS sig
                , let debug = [ showAddr pc
                              , showByte a
+                             , showByte p
                              , if iSrc `testBit` 0 then "BRK" else "   "
                              , if iSrc `testBit` 1 then "IRQ" else "   "
                              , if iSrc `testBit` 2 then "NMI" else "   "
