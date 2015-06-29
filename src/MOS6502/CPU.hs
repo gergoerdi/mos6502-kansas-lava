@@ -334,10 +334,13 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
               irq := low
               nmi := low
               caseEx [ IF interrupt $ do
-                            rArgBuf := unsigned (reg rPC)
                             rSP := reg rSP - 2
                             rNextA := pushTarget
-                            rNextW := enabledS $ unsigned (reg rPC `shiftR` 8)
+
+                            let pc = mux dBRK (reg rPC, reg rPC + 2)
+                            rNextW := enabledS $ unsigned (pc `shiftR` 8)
+                            rArgBuf := unsigned pc
+
                             rPC := mux (reg nmi) (pureS irqVector, pureS nmiVector)
                             servicingNMI := reg nmi
                             servicingIRQ := reg irq
