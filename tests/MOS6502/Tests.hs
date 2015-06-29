@@ -36,7 +36,7 @@ allTests = concat [ branch
     sta = [ sta_zp, sta_zp_x, sta_abs, sta_abs_x, sta_abs_y, sta_ind_x, sta_ind_y ]
     transfer = [ inx, dex, iny, dey, tax, txa, tay, tya, txs, tsx ]
     arithmetics = concat [ adc, sbc, ror, dec ]
-    flags = [ sec, clc ]
+    flags = [ sec, clc, sei, cli ]
 
 nop :: Test
 nop = op0 "NOP" $ do
@@ -118,7 +118,21 @@ clc = op0 "CLC" $ do
     flags <- observe statusFlags
     execute0 0x18 2
     flags' <- observe statusFlags
-    assertEq "C flag is cleared" flags' $ (.&. 0xFE) <$> flags
+    assertEq "C flag is cleared" flags' $ (.&. (complement 0x01)) <$> flags
+
+sei :: Test
+sei = op0 "SEI" $ do
+    flags <- observe statusFlags
+    execute0 0x78 2
+    flags' <- observe statusFlags
+    assertEq "I flag is set" flags' $ (.|. 0x04) <$> flags
+
+cli :: Test
+cli = op0 "CLI" $ do
+    flags <- observe statusFlags
+    execute0 0x58 2
+    flags' <- observe statusFlags
+    assertEq "I flag is cleared" flags' $ (.&. (complement 0x04)) <$> flags
 
 adc :: [Test]
 adc = [ adc_imm, adc_zp ]
