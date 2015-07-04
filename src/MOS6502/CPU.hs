@@ -170,8 +170,8 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
 
     WHEN ready $ do
         CASE [ IF interrupt $ do
-                    irq := low
                     nmi := low
+                    WHEN (bitNot (reg nmi)) $ irq := low
              , OTHERWISE $ do
                     WHEN (fallingEdge cpuNMI) $ nmi := high
                     WHEN (bitNot cpuIRQ) $ irq := high
@@ -342,7 +342,7 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                             rSP := reg rSP - 2
                             rNextA := pushTarget
 
-                            let pc = mux dBRK (reg rPC, reg rPC + 2)
+                            let pc = mux (bitNot $ reg nmi .||. reg irq) (reg rPC, reg rPC + 2)
                             rNextW := enabledS $ unsigned (pc `shiftR` 8)
                             rArgBuf := unsigned pc
 
