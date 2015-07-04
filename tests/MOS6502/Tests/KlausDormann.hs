@@ -45,17 +45,18 @@ circuit image = (cpuPC, ram, debug)
     portAddr = 0xBFFC
     isPort = cpuMemA .==. pureS portAddr
     portW = packEnabled (isEnabled cpuMemW .&&. isPort) $ enabledVal cpuMemW
-    (cpuIRQ, cpuNMI) = runRTL $ do
+    (cpuIRQ, cpuNMI, portR) = runRTL $ do
         fireIRQ <- newReg False
         fireNMI <- newReg False
+        r <- newReg 0
 
         CASE [ match portW $ \x -> do
+                    r := x
                     fireIRQ := x `testABit` 0
                     fireNMI := x `testABit` 1
              ]
 
-        return (bitNot $ reg fireIRQ, bitNot $ reg fireNMI)
-    portR = pureS 0
+        return (bitNot $ reg fireIRQ, bitNot $ reg fireNMI, reg r)
 
     cpuMemR = forceDefined 0x00 $
               memoryMapping [ (isRAM, ramR)
@@ -76,7 +77,6 @@ suiteResult image = if trapPC `elem` targetPCs then Pass
                              , if iSrc `testBit` 0 then "BRK" else "   "
                              , if iSrc `testBit` 1 then "IRQ" else "   "
                              , if iSrc `testBit` 2 then "NMI" else "   "
-                             -- , show irqq
                              ]
                 , _ <- trace (unwords debug) $ return ()
                 ]
