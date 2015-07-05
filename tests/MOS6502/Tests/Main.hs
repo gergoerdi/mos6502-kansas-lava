@@ -1,6 +1,7 @@
-module MOS6502.Tests.Main (tests) where
+module MOS6502.Tests.Main (tests, foo) where
 
 import Distribution.TestSuite.QuickCheck as QC
+import Distribution.TestSuite
 
 import MOS6502.Tests
 import MOS6502.Tests.Framework
@@ -15,3 +16,9 @@ tests = do
     opTests = [ testProperty (testLabel test) (runTest test)
               | test <- allTests
               ]
+
+foo :: IO ()
+foo = do
+    Test t <- KlausDormann.test
+    Finished r <- run t
+    print r
