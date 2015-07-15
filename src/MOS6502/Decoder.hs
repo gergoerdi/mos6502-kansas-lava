@@ -2,7 +2,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE QuasiQuotes #-}
-module MOS6502.Decoder (Addressing(..), Decoded(..), decode) where
+module MOS6502.Decoder (Addressing(..), Decoded(..), decode, ArgReg(..)) where
 
 import MOS6502.Types
 import MOS6502.Utils
@@ -26,25 +26,43 @@ data Addressing clk = Addressing{ addrNone :: Signal clk Bool
                                 }
                     deriving Show
 
+data ArgReg = RegA
+            | RegX
+            | RegY
+            | RegSP
+            deriving (Eq, Show, Enum, Bounded)
+
+type ArgRegSize = X4
+
+instance Rep ArgReg where
+    type W ArgReg = X2 -- W ArgRegSize
+    newtype X ArgReg = XArgReg{ unXArgReg :: Maybe ArgReg }
+
+    unX = unXArgReg
+    optX = XArgReg
+    toRep s = toRep . optX $ s'
+      where
+        s' :: Maybe ArgRegSize
+        s' = fmap (fromIntegral . fromEnum) $ unX s
+    fromRep rep = optX $ fmap (toEnum . fromIntegral . toInteger) $ unX x
+      where
+        x :: X ArgRegSize
+        x = sizedFromRepToIntegral rep
+
+    repType _ = repType (Witness :: Witness ArgRegSize)
+
 data Decoded clk = Decoded{ dAddr :: Addressing clk
+                          , dSourceReg :: Signal clk (Enabled ArgReg)
                           , dReadMem :: Signal clk Bool
-                          , dReadA :: Signal clk Bool
-                          , dReadX :: Signal clk Bool
-                          , dReadY :: Signal clk Bool
-                          , dReadSP :: Signal clk Bool
                           , dUseBinALU :: Signal clk (Enabled BinOp)
                           , dUseUnALU :: Signal clk (Enabled UnOp)
                           , dUseCmpALU :: Signal clk Bool
                           , dUpdateFlags :: Signal clk Bool
-                          , dWriteA :: Signal clk Bool
-                          , dWriteX :: Signal clk Bool
-                          , dWriteY :: Signal clk Bool
-                          , dWriteSP :: Signal clk Bool
+                          , dTargetReg :: Signal clk (Enabled ArgReg)
                           , dWriteMem :: Signal clk Bool
-                          , dWriteFlags :: Signal clk Bool
                           , dBranch :: Signal clk (Enabled (U2, Bool))
-                          , dSetFlag :: Signal clk (Enabled X8)
-                          , dClearFlag :: Signal clk (Enabled X8)
+                          , dWriteFlag :: Signal clk (Enabled (Bool, X8))
+                          , dWriteFlags :: Signal clk Bool
                           , dJump :: Signal clk Bool
                           , dJSR :: Signal clk Bool
                           , dRTS :: Signal clk Bool
@@ -134,6 +152,12 @@ decode op = Decoded{..}
                  opAAA `elemS` [[b|110|], [b|111|]] .&&.
                  opBBB `elemS` [[b|000|], [b|001|], [b|011|]]
 
+    dSourceReg = muxN [ (dReadX, enabledS . pureS $ RegX)
+                      , (dReadY, enabledS . pureS $ RegY)
+                      , (dReadA, enabledS . pureS $ RegA)
+                      , (dReadSP, enabledS . pureS $ RegSP)
+                      , (high, disabledS)
+                      ]
     dReadA = muxN [ (isBinOp, binOp ./=. pureS LDA)
                   , (isUnOp, isUnA)
                   , (op .==. pureS 0xA8, high) -- TAY
@@ -162,6 +186,13 @@ decode op = Decoded{..}
                     , (dBIT, high)
                     , (high, op .==. 0x6C) -- indirect JMP
                     ]
+
+    dTargetReg = muxN [ (dWriteX, enabledS . pureS $ RegX)
+                      , (dWriteY, enabledS . pureS $ RegY)
+                      , (dWriteA, enabledS . pureS $ RegA)
+                      , (dWriteSP, enabledS . pureS $ RegSP)
+                      , (high, disabledS)
+                      ]
 
     dWriteA = muxN [ (isBinOp, bitNot $ binOp `elemS` [STA, CMP])
                    , (isUnOp, isUnA .||. isTXA)
@@ -207,7 +238,6 @@ decode op = Decoded{..}
 
     isChangeFlag = opBBB .==. [b|110|] .&&. opCC .==. [b|00|] .&&. opAAA ./=. [b|100|]
     setFlag = opAAA `elemS` [[b|001|], [b|011|], [b|111|]]
-    clearFlag = bitNot setFlag
     flag = switchS opAAA [ ([b|000|], 0) -- C
                          , ([b|001|], 0) -- C
                          , ([b|010|], 2) -- I
@@ -216,5 +246,5 @@ decode op = Decoded{..}
                          , ([b|110|], 3) -- D
                          , ([b|111|], 3) -- D
                          ]
-    dSetFlag = packEnabled (isChangeFlag .&&. setFlag) flag
-    dClearFlag = packEnabled (isChangeFlag .&&. clearFlag) flag
+
+    dWriteFlag = packEnabled isChangeFlag $ pack (setFlag, flag)

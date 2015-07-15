@@ -1,5 +1,5 @@
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE RecordWildCards, LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module MOS6502.CPU where
 
@@ -157,8 +157,6 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
         writeFlag b i = CASE [ IF (i .==. pureS (fromIntegral j)) $ rFlag := b
                              | (j, rFlag) <- zip [0..] (reverse rFlags)
                              ]
-        setFlag = writeFlag high
-        clearFlag = writeFlag low
 
     let branchFlags :: Signal clk (Matrix U2 Bool)
         branchFlags = pack . Matrix.fromList . map reg $ [fN, fV, fC, fZ]
@@ -166,37 +164,36 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
     -- Interrupts
     nmi <- newReg False
     irq <- newReg False
-    let interrupt = reg nmi .||. (bitNot (reg fI) .&&. reg irq) .||. dBRK
 
     WHEN ready $ do
-        CASE [ IF interrupt $ do
-                    nmi := low
-                    WHEN (bitNot (reg nmi)) $ irq := low
-             , OTHERWISE $ do
-                    WHEN (fallingEdge cpuNMI) $ nmi := high
-                    WHEN (bitNot cpuIRQ) $ irq := high
-             ]
+        WHEN (fallingEdge cpuNMI) $ nmi := high
+        WHEN (bitNot cpuIRQ .&&. bitNot (reg fI)) $ irq := high
 
     servicingNMI <- newReg False
     servicingIRQ <- newReg False
     let servicingInterrupt = reg servicingNMI .||. reg servicingIRQ .||. dBRK
+
+    let interrupt =
+            (bitNot (reg servicingNMI) .&&. bitNot (reg servicingIRQ)) .&&.
+            (reg nmi .||. (reg irq .&&. bitNot (reg fI)) .||. dBRK)
 
     rNextA <- newReg 0x0000
     rNextW <- newReg Nothing
 
     let aluIn = ALUIn{ aluInC = reg fC, aluInD = reg fD }
 
+    let sourceReg = switchS (enabledVal dSourceReg)
+                    [ (RegX, reg rX)
+                    , (RegY, reg rY)
+                    , (RegA, reg rA)
+                    , (RegSP, reg rSP)
+                    ]
+
     let unArg = muxN [ (dReadMem, argByte)
                      , (addrImm, argByte)
-                     , (dReadA, reg rA)
-                     , (dReadX, reg rX)
-                     , (dReadY, reg rY)
-                     , (dReadSP, reg rSP)
+                     , (isEnabled dSourceReg, sourceReg)
                      ]
-
-    let cmpArg = muxN [ (dReadX, reg rX)
-                      , (dReadY, reg rY)
-                      ]
+    let cmpArg = sourceReg
         (cmpOut, cmpRes) = cmpALU cmpArg argByte
 
     let (binOut, binRes) = binaryALU (enabledVal dUseBinALU) aluIn (reg rA) argByte
@@ -218,6 +215,15 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
             commit ALUOut{..} = do
                 CASE [ match aluOutC (fC :=) ]
                 CASE [ match aluOutV (fV :=) ]
+
+    let writeTarget = do
+            WHEN dUpdateFlags $ commitALUFlags
+            CASE [ match dTargetReg $ flip switch $ \case
+                        RegA -> rA := res
+                        RegX -> rX := res
+                        RegY -> rY := res
+                        RegSP -> rSP := res
+                 ]
 
     let addrPreOffset = muxN [ (addrPreAddX, reg rX)
                              , (addrPreAddY, reg rY)
@@ -252,15 +258,10 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                           rNextA := popTarget
                           s := pureS WaitRead
                    , IF (addrNone .||. addrImm) $ do
-                          WHEN dUpdateFlags $ commitALUFlags
-                          WHEN dWriteA $ rA := res
-                          WHEN dWriteX $ rX := res
-                          WHEN dWriteY $ rY := res
-                          WHEN dWriteSP $ rSP := res
+                          writeTarget
+
                           WHEN dBIT runBIT
-                          CASE [ match dSetFlag setFlag
-                               , match dClearFlag clearFlag
-                               ]
+                          CASE [ match dWriteFlag $ uncurry writeFlag . unpack ]
                           rNextA := var rPC
                           s := pureS Fetch1
                    , IF dJSR $ do
@@ -301,11 +302,8 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                                       s := pureS WaitRead
                                ]
                    , OTHERWISE $ do
-                          WHEN dUpdateFlags $ commitALUFlags
                           WHEN dWriteFlags $ writeFlags argByte
-                          WHEN dWriteA $ rA := res
-                          WHEN dWriteX $ rX := res
-                          WHEN dWriteY $ rY := res
+                          writeTarget
                           WHEN dBIT runBIT
                           CASE [ IF dWriteMem $ do
                                       rNextW := enabledS res
@@ -372,6 +370,12 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                             run1
                             s := pureS Fetch1
                      ]
+
+              servicingNMI := low
+              nmi := low
+              servicingIRQ := low
+              irq := low
+
               rPC := reg rPC + 1
               rNextA := var rPC
               s := pureS Fetch2
@@ -416,8 +420,6 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
           WaitPushInt -> do
               rNextA := reg rPC
               fI := high
-              servicingNMI := low
-              servicingIRQ := low
               s := pureS FetchVector1
           Halt -> do
               s := pureS Halt
@@ -438,7 +440,7 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
         cpuSP = reg rSP
         cpuP = flags
         cpuPC = reg rPC
-        cpuIRQQueue = reg irq
+        cpuIRQQueue = interrupt -- reg irq
         cpuNMIQueue = reg nmi
 
     return (CPUOut{..}, CPUDebug{..})
