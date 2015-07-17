@@ -1,6 +1,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE RecordWildCards, LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
 module MOS6502.CPU where
 
 import MOS6502.Types
@@ -62,25 +63,12 @@ data State = Halt
            | WaitPushAddr
            | WaitWrite
            | WaitPushInt
-           deriving (Show, Eq, Enum, Bounded)
-type StateSize = X14
+           deriving (Show, Eq, Ord, Enum, Bounded)
 
-instance Rep State where
-    type W State = X4 -- W StateSize
-    newtype X State = XState{ unXState :: Maybe State }
+instance BitRep State where
+    bitRep = bitRepEnum
 
-    unX = unXState
-    optX = XState
-    toRep s = toRep . optX $ s'
-      where
-        s' :: Maybe StateSize
-        s' = fmap (fromIntegral . fromEnum) $ unX s
-    fromRep rep = optX $ fmap (toEnum . fromIntegral . toInteger) $ unX x
-      where
-        x :: X StateSize
-        x = sizedFromRepToIntegral rep
-
-    repType _ = repType (Witness :: Witness StateSize)
+$(repBitRep ''State 4)
 
 bitsToByte :: (Clock clk)
            => Matrix X8 (Signal clk Bool)
@@ -154,11 +142,11 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
         flagsIRQ = flags .&. (complement 0x10)
 
         writeFlags mtx = zipWithM_ (:=) (reverse rFlags) (Matrix.toList . byteToBits $ mtx)
-        writeFlag b i = CASE [ IF (i .==. pureS (fromIntegral j)) $ rFlag := b
+        writeFlag i b = CASE [ IF (i .==. pureS (fromIntegral j)) $ rFlag := b
                              | (j, rFlag) <- zip [0..] (reverse rFlags)
                              ]
 
-    let branchFlags :: Signal clk (Matrix U2 Bool)
+    let branchFlags :: Signal clk (Matrix (Unsigned (W BranchFlag)) Bool)
         branchFlags = pack . Matrix.fromList . map reg $ [fN, fV, fC, fZ]
 
     -- Interrupts
@@ -196,6 +184,8 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
     let cmpArg = sourceReg
         (cmpOut, cmpRes) = cmpALU cmpArg argByte
 
+    let dUseBinALU = aluBinOp .=<<. dALU
+        dUseUnALU = aluUnOp .=<<. dALU
     let (binOut, binRes) = binaryALU (enabledVal dUseBinALU) aluIn (reg rA) argByte
         (unOut, unRes) = unaryALU (enabledVal dUseUnALU) aluIn unArg
     let res = muxN [ (isEnabled dUseBinALU, binRes)
@@ -240,7 +230,7 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
         run1 = do
             caseEx [ match dBranch $ \branch -> do
                           let (selector, target) = unpack branch
-                          let branchFlag = branchFlags .!. selector
+                          let branchFlag = branchFlags .!. bitwise selector
                               branchCond = branchFlag .==. target
                           WHEN branchCond $ do
                               rPC := reg rPC + signed argByte + 1

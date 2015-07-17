@@ -1,3 +1,4 @@
+{-# LANGUAGE RankNTypes #-}
 module MOS6502.Utils where
 
 import Language.KansasLava
@@ -30,7 +31,7 @@ switchS :: (Clock clk, Rep a, Rep b, Eq a)
         => Signal clk a -> [(a, Signal clk b)] -> Signal clk b
 switchS sig = foldr (\(x,y) sig' -> mux (sig .==. pureS x) (sig', y)) undefinedS
 
-muxN :: (Clock clk, Rep a)
+muxN :: (Rep a)
      => [(Signal clk Bool, Signal clk a)] -> Signal clk a
 muxN = foldr (\(b, y) sig -> mux b (sig, y)) undefinedS
 
@@ -45,3 +46,10 @@ risingEdge sig = runRTL $ do
     prev <- newReg True
     prev := sig
     return $ bitNot (reg prev) .&&. sig
+
+(.=<<.) :: (Rep a, Rep b)
+        => (forall clk. Signal clk a -> Signal clk (Enabled b))
+        -> Signal clk (Enabled a) -> Signal clk (Enabled b)
+f .=<<. s = packEnabled (isEnabled s .&&. isEnabled s') $ enabledVal s'
+  where
+    s' = f (enabledVal s)

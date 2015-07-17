@@ -1,8 +1,12 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE QuasiQuotes #-}
-module MOS6502.Decoder (Addressing(..), Decoded(..), decode, ArgReg(..)) where
+{-# LANGUAGE QuasiQuotes, TemplateHaskell #-}
+module MOS6502.Decoder
+       ( Addressing(..), Decoded(..), decode
+       , ArgReg(..), BranchFlag(..)
+       , ALUOp(..), aluBinOp, aluUnOp
+       ) where
 
 import MOS6502.Types
 import MOS6502.Utils
@@ -12,7 +16,6 @@ import Language.Literals.Binary
 import Language.KansasLava
 import Data.Sized.Ix
 import Data.Sized.Unsigned
-import Data.Bits
 import Data.Tuple (swap)
 
 data Addressing clk = Addressing{ addrNone :: Signal clk Bool
@@ -26,42 +29,65 @@ data Addressing clk = Addressing{ addrNone :: Signal clk Bool
                                 }
                     deriving Show
 
+data BranchFlag = BranchN
+                | BranchV
+                | BranchC
+                | BranchZ
+                deriving (Eq, Ord, Show, Enum, Bounded)
+$(repBitRep ''BranchFlag 2)
+
+instance BitRep BranchFlag where
+    bitRep = bitRepEnum
+
 data ArgReg = RegA
             | RegX
             | RegY
             | RegSP
-            deriving (Eq, Show, Enum, Bounded)
+            deriving (Eq, Ord, Show, Enum, Bounded)
+$(repBitRep ''ArgReg 2)
 
-type ArgRegSize = X4
+instance BitRep ArgReg where
+    bitRep = bitRepEnum
 
-instance Rep ArgReg where
-    type W ArgReg = X2 -- W ArgRegSize
-    newtype X ArgReg = XArgReg{ unXArgReg :: Maybe ArgReg }
+data ALUOp = ALUBin BinOp
+           | ALUUn UnOp
+           | ALUCmp
+           deriving (Eq, Ord, Show)
 
-    unX = unXArgReg
-    optX = XArgReg
-    toRep s = toRep . optX $ s'
-      where
-        s' :: Maybe ArgRegSize
-        s' = fmap (fromIntegral . fromEnum) $ unX s
-    fromRep rep = optX $ fmap (toEnum . fromIntegral . toInteger) $ unX x
-      where
-        x :: X ArgRegSize
-        x = sizedFromRepToIntegral rep
+$(repBitRep ''ALUOp 5)
 
-    repType _ = repType (Witness :: Witness ArgRegSize)
+instance BitRep ALUOp where
+    bitRep = concat [ [(ALUBin bin, bits "00" & rep) | (bin, rep) <- bitRep]
+                    , [(ALUUn un, bits "01" & rep) | (un, rep) <- bitRep]
+                    , [(ALUCmp, bits "10000")]
+                    ]
+
+aluBinOp :: forall clk. Signal clk ALUOp -> Signal clk (Enabled BinOp)
+aluBinOp s = muxN [ (sel .==. [b|00|], enabledS bin)
+                  , (high, disabledS)
+                  ]
+  where
+    (sel :: Signal clk X3, bin) = swap . unappendS $ s
+
+aluUnOp :: forall clk. Signal clk ALUOp -> Signal clk (Enabled UnOp)
+aluUnOp s = muxN [ (sel .==. [b|01|], enabledS un)
+                 , (high, disabledS)
+                 ]
+  where
+    (sel :: Signal clk X3, un) = swap . unappendS $ s
 
 data Decoded clk = Decoded{ dAddr :: Addressing clk
                           , dSourceReg :: Signal clk (Enabled ArgReg)
                           , dReadMem :: Signal clk Bool
+                          , dALU :: Signal clk (Enabled ALUOp)
                           , dUseBinALU :: Signal clk (Enabled BinOp)
                           , dUseUnALU :: Signal clk (Enabled UnOp)
                           , dUseCmpALU :: Signal clk Bool
                           , dUpdateFlags :: Signal clk Bool
                           , dTargetReg :: Signal clk (Enabled ArgReg)
                           , dWriteMem :: Signal clk Bool
-                          , dBranch :: Signal clk (Enabled (U2, Bool))
-                          , dWriteFlag :: Signal clk (Enabled (Bool, X8))
+                          , dBranch :: Signal clk (Enabled (BranchFlag, Bool))
+                          , dWriteFlag :: Signal clk (Enabled (X8, Bool))
                           , dWriteFlags :: Signal clk Bool
                           , dJump :: Signal clk Bool
                           , dJSR :: Signal clk Bool
@@ -137,6 +163,12 @@ decode op = Decoded{..}
         addrDirect = muxN [ (isBinOp, opBBB `elemS` [[b|011|], [b|110|], [b|111|]])
                           , (high,  dJSR .||. opBBB `elemS` [[b|011|], [b|111|]])
                           ]
+
+    dALU = muxN [ (isEnabled dUseBinALU, enabledS . funMap (return . ALUBin) . enabledVal $ dUseBinALU)
+                , (isEnabled dUseUnALU, enabledS . funMap (return . ALUUn) . enabledVal $ dUseUnALU)
+                , (dUseCmpALU, enabledS . pureS $ ALUCmp)
+                , (high, disabledS)
+                ]
 
     dUseBinALU = packEnabled isBinOp binOp
     dUseUnALU = muxN [ (isUnOp, enabledS unOp)
@@ -233,8 +265,7 @@ decode op = Decoded{..}
     isBranch = opCC .==. [b|00|] .&&. opBBB .==. [b|100|]
     dBranch = packEnabled isBranch $ pack (selector, targetValue)
       where
-        selector = unsigned $ opAAA `shiftR` 1
-        targetValue = opAAA `testABit` 0
+        (selector, targetValue) = swap . unappendS $ opAAA
 
     isChangeFlag = opBBB .==. [b|110|] .&&. opCC .==. [b|00|] .&&. opAAA ./=. [b|100|]
     setFlag = opAAA `elemS` [[b|001|], [b|011|], [b|111|]]
@@ -247,4 +278,4 @@ decode op = Decoded{..}
                          , ([b|111|], 3) -- D
                          ]
 
-    dWriteFlag = packEnabled isChangeFlag $ pack (setFlag, flag)
+    dWriteFlag = packEnabled isChangeFlag $ pack (flag, setFlag)

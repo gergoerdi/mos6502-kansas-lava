@@ -1,10 +1,10 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
 module MOS6502.ALU where
 
 import MOS6502.Types
-import MOS6502.Utils
 
 import Language.KansasLava
 import Data.Sized.Signed
@@ -20,77 +20,6 @@ data ALUOut clk = ALUOut{ aluOutC :: Signal clk (Enabled Bool)
                         , aluOutV :: Signal clk (Enabled Bool)
                         }
 
-data BinAddr = Bin_Indirect_X
-             | Bin_ZP
-             | Bin_Imm
-             | Bin_Absolute
-             | Bin_Indirect_Y
-             | Bin_ZP_X
-             | Bin_Absolute_Y
-             | Bin_Absolute_X
-           deriving (Show, Eq, Enum, Bounded)
-type BinAddrSize = X8
-
-instance Rep BinAddr where
-    type W BinAddr = X3 -- W BinAddrSize
-    newtype X BinAddr = XBinAddr{ unXBinAddr :: Maybe BinAddr }
-
-    unX = unXBinAddr
-    optX = XBinAddr
-    toRep s = toRep . optX $ s'
-      where
-        s' :: Maybe BinAddrSize
-        s' = fmap (fromIntegral . fromEnum) $ unX s
-    fromRep rep = optX $ fmap (toEnum . fromIntegral . toInteger) $ unX x
-      where
-        x :: X BinAddrSize
-        x = sizedFromRepToIntegral rep
-
-    repType _ = repType (Witness :: Witness BinAddrSize)
-
-binIsLength2 :: (Clock clk) => Signal clk BinAddr -> Signal clk Bool
-binIsLength2 addr = addr `elemS` [Bin_Imm, Bin_ZP, Bin_ZP_X]
-
-binIsDirect :: (Clock clk) => Signal clk BinAddr -> Signal clk Bool
-binIsDirect addr = addr `elemS` [Bin_Absolute, Bin_Absolute_X, Bin_Absolute_Y]
-
-binIsIndirect :: (Clock clk) => Signal clk BinAddr -> Signal clk Bool
-binIsIndirect addr = addr `elemS` [Bin_Indirect_X, Bin_Indirect_Y]
-
-data UnAddr = Un_Imm
-            | Un_ZP
-            | Un_A
-            | Un_Absolute
-            | Un_Special_1
-            | Un_ZP_X
-            | Un_Special_2
-            | Un_Absolute_X
-            deriving (Show, Eq, Enum, Bounded)
-type UnAddrSize = X8
-
-instance Rep UnAddr where
-    type W UnAddr = X3 -- W UnAddrSize
-    newtype X UnAddr = XUnAddr{ unXUnAddr :: Maybe UnAddr }
-
-    unX = unXUnAddr
-    optX = XUnAddr
-    toRep s = toRep . optX $ s'
-      where
-        s' :: Maybe UnAddrSize
-        s' = fmap (fromIntegral . fromEnum) $ unX s
-    fromRep rep = optX $ fmap (toEnum . fromIntegral . toInteger) $ unX x
-      where
-        x :: X UnAddrSize
-        x = sizedFromRepToIntegral rep
-
-    repType _ = repType (Witness :: Witness UnAddrSize)
-
-unIsLength2 :: (Clock clk) => Signal clk UnAddr -> Signal clk Bool
-unIsLength2 addr = addr `elemS` [Un_Imm, Un_ZP, Un_ZP_X]
-
-unIsDirect :: (Clock clk) => Signal clk UnAddr -> Signal clk Bool
-unIsDirect addr = addr `elemS` [Un_Absolute, Un_Absolute_X]
-
 data BinOp = ORA
            | AND
            | EOR
@@ -99,26 +28,27 @@ data BinOp = ORA
            | LDA
            | CMP
            | SBC
-           deriving (Show, Eq, Enum, Bounded)
-type BinOpSize = X8
+           deriving (Show, Eq, Ord, Enum, Bounded)
 
-instance Rep BinOp where
-    type W BinOp = X3 -- W BinOpSize
-    newtype X BinOp = XBinOp{ unXBinOp :: Maybe BinOp }
+instance BitRep BinOp where
+    bitRep = bitRepEnum
 
-    unX = unXBinOp
-    optX = XBinOp
-    toRep s = toRep . optX $ s'
-      where
-        s' :: Maybe BinOpSize
-        s' = fmap (fromIntegral . fromEnum) $ unX s
-    fromRep rep = optX $ fmap (toEnum . fromIntegral . toInteger) $ unX x
-      where
-        x :: X BinOpSize
-        x = sizedFromRepToIntegral rep
+$(repBitRep ''BinOp 3)
 
-    repType _ = repType (Witness :: Witness BinOpSize)
+data UnOp = ASL
+          | ROL
+          | LSR
+          | ROR
+          | STX
+          | LDX
+          | DEC
+          | INC
+          deriving (Show, Eq, Ord, Enum, Bounded)
 
+instance BitRep UnOp where
+    bitRep = bitRepEnum
+
+$(repBitRep ''UnOp 3)
 
 binaryALU :: forall clk. (Clock clk)
           => Signal clk BinOp
@@ -128,7 +58,7 @@ binaryALU op flags arg1 arg2 = (ALUOut{..}, result)
   where
     (result, aluOutC, aluOutV) = unpack $ ops .!. bitwise op
 
-    ops :: Signal clk (Matrix BinOpSize (Byte, Enabled Bool, Enabled Bool))
+    ops :: Signal clk (Matrix (Unsigned (W BinOp)) (Byte, Enabled Bool, Enabled Bool))
     ops = pack $ matrix $ map pack $
           [ oraS
           , andS
@@ -157,34 +87,6 @@ binaryALU op flags arg1 arg2 = (ALUOut{..}, result)
     ldaS = logicS (\_ y -> y)
     cmpS = (arg1 - arg2, enabledS $ arg1 .>=. arg2, disabledS)
 
-data UnOp = ASL
-          | ROL
-          | LSR
-          | ROR
-          | STX
-          | LDX
-          | DEC
-          | INC
-          deriving (Show, Eq, Enum, Bounded)
-type UnOpSize = X8
-
-instance Rep UnOp where
-    type W UnOp = X3 -- W UnOpSize
-    newtype X UnOp = XUnOp{ unXUnOp :: Maybe UnOp }
-
-    unX = unXUnOp
-    optX = XUnOp
-    toRep s = toRep . optX $ s'
-      where
-        s' :: Maybe UnOpSize
-        s' = fmap (fromIntegral . fromEnum) $ unX s
-    fromRep rep = optX $ fmap (toEnum . fromIntegral . toInteger) $ unX x
-      where
-        x :: X UnOpSize
-        x = sizedFromRepToIntegral rep
-
-    repType _ = repType (Witness :: Witness UnOpSize)
-
 unaryALU :: forall clk. (Clock clk)
          => Signal clk UnOp
          -> ALUIn clk -> Signal clk Byte
@@ -194,7 +96,7 @@ unaryALU op ALUIn{..} arg1 = (ALUOut{..}, result)
     (result, aluOutC) = unpack $ ops .!. bitwise op
     aluOutV = disabledS
 
-    ops :: Signal clk (Matrix UnOpSize (Byte, Enabled Bool))
+    ops :: Signal clk (Matrix (Unsigned (W UnOp)) (Byte, Enabled Bool))
     ops = pack $ matrix $ map pack $
           [ aslS
           , rolS
