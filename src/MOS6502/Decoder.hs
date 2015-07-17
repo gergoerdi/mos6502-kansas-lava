@@ -52,14 +52,15 @@ instance BitRep ArgReg where
 data ALUOp = ALUBin BinOp
            | ALUUn UnOp
            | ALUCmp
+           | ALUBIT
            deriving (Eq, Ord, Show)
-
 $(repBitRep ''ALUOp 5)
 
 instance BitRep ALUOp where
     bitRep = concat [ [(ALUBin bin, bits "00" & rep) | (bin, rep) <- bitRep]
                     , [(ALUUn un, bits "01" & rep) | (un, rep) <- bitRep]
                     , [(ALUCmp, bits "10000")]
+                    , [(ALUBIT, bits "11000")]
                     ]
 
 aluBinOp :: forall clk. Signal clk ALUOp -> Signal clk (Enabled BinOp)
@@ -67,22 +68,51 @@ aluBinOp s = muxN [ (sel .==. [b|00|], enabledS bin)
                   , (high, disabledS)
                   ]
   where
-    (sel :: Signal clk X3, bin) = swap . unappendS $ s
+    (sel :: Signal clk X4, bin) = swap . unappendS $ s
 
 aluUnOp :: forall clk. Signal clk ALUOp -> Signal clk (Enabled UnOp)
 aluUnOp s = muxN [ (sel .==. [b|01|], enabledS un)
                  , (high, disabledS)
                  ]
   where
-    (sel :: Signal clk X3, un) = swap . unappendS $ s
+    (sel :: Signal clk X4, un) = swap . unappendS $ s
+
+data OpClass = OpALU ALUOp
+             | OpBranch BranchFlag Bool
+             | OpJump
+             | OpPush
+             | OpPop
+             | OpJSR
+             | OpRTS
+             | OpBRK
+             | OpRTI
+             deriving (Eq, Ord, Show)
+$(repBitRep ''OpClass 9)
+
+instance BitRep OpClass where
+    bitRep = concat [ [(OpALU aluOp, bits "0000" & rep) | (aluOp, rep) <- bitRep]
+                    , withBool [(OpBranch flag, bits "0001" & repFlag) | (flag, repFlag) <- bitRep]
+                    , [ (cls, bs & bits "00000")
+                      | (i, cls) <- zip [2 :: U4 ..] atomicClasses
+                      , let bs = BitPat . toRep . optX . Just $ i :: BitPat X4
+                      ]
+                    ]
+      where
+        atomicClasses = [OpJump, OpPush, OpPop, OpJSR, OpRTS, OpBRK, OpRTI]
+
+        withBool = concatMap $ \(mkValue, rep) ->
+          [(mkValue b, rep & b')
+          | b <- [True, False]
+          , let b' = bits (if b then "1" else "0") :: BitPat X1
+          ]
 
 data Decoded clk = Decoded{ dAddr :: Addressing clk
                           , dSourceReg :: Signal clk (Enabled ArgReg)
                           , dReadMem :: Signal clk Bool
                           , dALU :: Signal clk (Enabled ALUOp)
-                          , dUseBinALU :: Signal clk (Enabled BinOp)
-                          , dUseUnALU :: Signal clk (Enabled UnOp)
-                          , dUseCmpALU :: Signal clk Bool
+                          -- , dUseBinALU :: Signal clk (Enabled BinOp)
+                          -- , dUseUnALU :: Signal clk (Enabled UnOp)
+                          -- , dUseCmpALU :: Signal clk Bool
                           , dUpdateFlags :: Signal clk Bool
                           , dTargetReg :: Signal clk (Enabled ArgReg)
                           , dWriteMem :: Signal clk Bool
@@ -90,13 +120,13 @@ data Decoded clk = Decoded{ dAddr :: Addressing clk
                           , dWriteFlag :: Signal clk (Enabled (X8, Bool))
                           , dWriteFlags :: Signal clk Bool
                           , dJump :: Signal clk Bool
+                          , dPush :: Signal clk Bool
+                          , dPop :: Signal clk Bool
                           , dJSR :: Signal clk Bool
                           , dRTS :: Signal clk Bool
                           , dBRK :: Signal clk Bool
                           , dRTI :: Signal clk Bool
-                          , dBIT :: Signal clk Bool
-                          , dPush :: Signal clk Bool
-                          , dPop :: Signal clk Bool
+                          -- , dBIT :: Signal clk Bool
                           }
                  deriving Show
 
@@ -167,6 +197,7 @@ decode op = Decoded{..}
     dALU = muxN [ (isEnabled dUseBinALU, enabledS . funMap (return . ALUBin) . enabledVal $ dUseBinALU)
                 , (isEnabled dUseUnALU, enabledS . funMap (return . ALUUn) . enabledVal $ dUseUnALU)
                 , (dUseCmpALU, enabledS . pureS $ ALUCmp)
+                , (dBIT, enabledS . pureS $ ALUBIT)
                 , (high, disabledS)
                 ]
 
@@ -259,6 +290,7 @@ decode op = Decoded{..}
                         , (op `elemS` [0xCA, 0x88], high) -- DEX, DEY
                         , (op `elemS` [0x98], high) -- TYA
                         , (dPop, op .==. 0x68)
+                        , (dBIT, high)
                         , (high, low)
                         ]
 

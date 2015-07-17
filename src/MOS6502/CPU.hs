@@ -186,6 +186,8 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
 
     let dUseBinALU = aluBinOp .=<<. dALU
         dUseUnALU = aluUnOp .=<<. dALU
+        dUseCmpALU = isEnabled dALU .&&. enabledVal dALU .==. pureS ALUCmp
+        dBIT = isEnabled dALU .&&. enabledVal dALU .==. pureS ALUBIT
     let (binOut, binRes) = binaryALU (enabledVal dUseBinALU) aluIn (reg rA) argByte
         (unOut, unRes) = unaryALU (enabledVal dUseUnALU) aluIn unArg
     let res = muxN [ (isEnabled dUseBinALU, binRes)
@@ -199,8 +201,14 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                  , IF (isEnabled dUseUnALU) $ commit unOut
                  , IF dUseCmpALU $ commit cmpOut
                  ]
-            fZ := res .==. 0
-            fN := res `testABit` 7
+            CASE [ IF dBIT $ do
+                        fZ := (reg rA .&. argByte) .==. 0
+                        fV := argByte `testABit` 6
+                        fN := argByte `testABit` 7
+                 , OTHERWISE $ do
+                        fZ := res .==. 0
+                        fN := res `testABit` 7
+                 ]
           where
             commit ALUOut{..} = do
                 CASE [ match aluOutC (fC :=) ]
@@ -222,11 +230,6 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
     let addr1 = mux (addrZP .||. addrIndirect)
                       (argWord + unsigned addrPreOffset,
                        unsigned $ argByte + addrPreOffset)
-        runBIT = do
-            fZ := (reg rA .&. argByte) .==. 0
-            fV := argByte `testABit` 6
-            fN := argByte `testABit` 7
-
         run1 = do
             caseEx [ match dBranch $ \branch -> do
                           let (selector, target) = unpack branch
@@ -249,8 +252,6 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                           s := pureS WaitRead
                    , IF (addrNone .||. addrImm) $ do
                           writeTarget
-
-                          WHEN dBIT runBIT
                           CASE [ match dWriteFlag $ uncurry writeFlag . unpack ]
                           rNextA := var rPC
                           s := pureS Fetch1
@@ -294,7 +295,6 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                    , OTHERWISE $ do
                           WHEN dWriteFlags $ writeFlags argByte
                           writeTarget
-                          WHEN dBIT runBIT
                           CASE [ IF dWriteMem $ do
                                       rNextW := enabledS res
                                       s := pureS WaitWrite
