@@ -17,6 +17,7 @@ import qualified Data.Sized.Matrix as Matrix
 import Data.Bits
 import Data.Default
 import Control.Monad (zipWithM_)
+import Control.Arrow (first)
 
 data CPUIn clk = CPUIn
     { cpuMemR :: Signal clk Byte
@@ -115,10 +116,9 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
     rOp <- newReg 0x00
     let op = var rOp
         decoded@Decoded{..} = decode op
-        Addressing{..} = dAddr
-        size1 = addrNone
-        size2 = addrImm .||. addrZP .||. addrIndirect
-        _size3 = addrDirect
+        size1 = dAddrMode .==. pureS AddrNone
+        size2 = dAddrMode `elemS` [AddrImm, AddrZP, AddrIndirect]
+        _size3 = dAddrMode .==. pureS AddrDirect
 
     rArgBuf <- newReg 0x00
     let argByte = cpuMemR
@@ -178,29 +178,28 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                     ]
 
     let unArg = muxN [ (dReadMem, argByte)
-                     , (addrImm, argByte)
+                     , (dAddrMode .==. pureS AddrImm, argByte)
                      , (isEnabled dSourceReg, sourceReg)
                      ]
-    let cmpArg = sourceReg
-        (cmpOut, cmpRes) = cmpALU cmpArg argByte
-
     let dUseBinALU = aluBinOp .=<<. dALU
         dUseUnALU = aluUnOp .=<<. dALU
-        dUseCmpALU = isEnabled dALU .&&. enabledVal dALU .==. pureS ALUCmp
+        dUseCmpALU = packEnabled (isEnabled dALU .&&. enabledVal dALU .==. pureS ALUCmp) sourceReg
+        dUseALU = isEnabled dUseBinALU .||. isEnabled dUseUnALU .||. isEnabled dUseCmpALU
         dBIT = isEnabled dALU .&&. enabledVal dALU .==. pureS ALUBIT
-    let (binOut, binRes) = binaryALU (enabledVal dUseBinALU) aluIn (reg rA) argByte
-        (unOut, unRes) = unaryALU (enabledVal dUseUnALU) aluIn unArg
-    let res = muxN [ (isEnabled dUseBinALU, binRes)
-                   , (isEnabled dUseUnALU, unRes)
-                   , (dUseCmpALU, cmpRes)
-                   , (high, argByte)
-                   ]
+
+    let (ALUOut{..}, res) = first unpackALUOut . muxN2 $
+                            [ aluOp dUseBinALU $ binaryALU aluIn (reg rA) argByte
+                            , aluOp dUseUnALU $ unaryALU aluIn unArg
+                            , aluOp dUseCmpALU $ cmpALU argByte
+                            , (high, (pack (disabledS, disabledS), argByte))
+                            ]
+          where
+            aluOp opS mkALU  = (isEnabled opS, first packALUOut . mkALU $ enabledVal opS)
 
     let commitALUFlags = do
-            CASE [ IF (isEnabled dUseBinALU) $ commit binOut
-                 , IF (isEnabled dUseUnALU) $ commit unOut
-                 , IF dUseCmpALU $ commit cmpOut
-                 ]
+            WHEN dUseALU $ do
+                CASE [ match aluOutC (fC :=) ]
+                CASE [ match aluOutV (fV :=) ]
             CASE [ IF dBIT $ do
                         fZ := (reg rA .&. argByte) .==. 0
                         fV := argByte `testABit` 6
@@ -209,10 +208,6 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                         fZ := res .==. 0
                         fN := res `testABit` 7
                  ]
-          where
-            commit ALUOut{..} = do
-                CASE [ match aluOutC (fC :=) ]
-                CASE [ match aluOutV (fV :=) ]
 
     let writeTarget = do
             WHEN dUpdateFlags $ commitALUFlags
@@ -223,11 +218,14 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                         RegSP -> rSP := res
                  ]
 
-    let addrPreOffset = muxN [ (addrPreAddX, reg rX)
-                             , (addrPreAddY, reg rY)
-                             , (high, 0)
-                             ]
-    let addr1 = mux (addrZP .||. addrIndirect)
+    let (addrPreOffset, addrPostOffset) =
+            muxN2 [ (dAddrOffset .==. pureS OffsetPreAddX, (reg rX, 0))
+                  , (dAddrOffset .==. pureS OffsetPreAddY, (reg rY, 0))
+                  , (dAddrOffset .==. pureS OffsetPostAddY, (0, reg rY))
+                  , (high, (0, 0))
+                  ]
+
+    let addr1 = mux (dAddrMode `elemS` [AddrZP, AddrIndirect])
                       (argWord + unsigned addrPreOffset,
                        unsigned $ argByte + addrPreOffset)
         run1 = do
@@ -250,7 +248,7 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                           rSP := reg rSP + 1
                           rNextA := popTarget
                           s := pureS WaitRead
-                   , IF (addrNone .||. addrImm) $ do
+                   , IF (dAddrMode `elemS` [AddrNone, AddrImm]) $ do
                           writeTarget
                           CASE [ match dWriteFlag $ uncurry writeFlag . unpack ]
                           rNextA := var rPC
@@ -262,7 +260,7 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                           rNextW := enabledS $ unsigned (reg rPC `shiftR` 8)
                           rPC := addr1
                           s := pureS WaitPushAddr
-                   , IF addrIndirect $ do
+                   , IF (dAddrMode .==. pureS AddrIndirect) $ do
                           rNextA := addr1
                           s := pureS Indirect1
                    , IF dReadMem $ do
@@ -274,9 +272,6 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                           s := pureS WaitWrite
                    ]
 
-    let addrPostOffset = muxN [ (addrPostAddY, reg rY)
-                              , (high, 0)
-                              ]
     let addr2 = argWord + unsigned addrPostOffset
     let run2 = do
             caseEx [ IF dRTI $ do
@@ -284,7 +279,7 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                           rSP := reg rSP + 2
                           rNextA := popTarget
                           s := pureS FetchVector1
-                   , IF (addrIndirect .&&. reg s .==. pureS Indirect2) $ do
+                   , IF (dAddrMode .==. pureS AddrIndirect .&&. reg s .==. pureS Indirect2) $ do
                           rNextA := addr2
                           CASE [ IF dWriteMem $ do
                                       rNextW := enabledS res

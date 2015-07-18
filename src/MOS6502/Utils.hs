@@ -1,7 +1,8 @@
-{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE RankNTypes, ScopedTypeVariables #-}
 module MOS6502.Utils where
 
 import Language.KansasLava
+import Language.KansasLava.Signal
 
 memoryMapping :: (Clock clk, Rep a)
               => [(Signal clk Bool, Signal clk a)]
@@ -34,6 +35,10 @@ switchS sig = foldr (\(x,y) sig' -> mux (sig .==. pureS x) (sig', y)) undefinedS
 muxN :: (Rep a)
      => [(Signal clk Bool, Signal clk a)] -> Signal clk a
 muxN = foldr (\(b, y) sig -> mux b (sig, y)) undefinedS
+
+muxN2 :: forall clk a b. (Rep a, Rep b)
+      => [(Signal clk Bool, (Signal clk a, Signal clk b))] -> (Signal clk a, Signal clk b)
+muxN2 = unpack . muxN . map (\(sel, xy) -> (sel, pack xy :: Signal clk (a, b)))
 
 fallingEdge :: (Clock clk) => Signal clk Bool -> Signal clk Bool
 fallingEdge sig = runRTL $ do

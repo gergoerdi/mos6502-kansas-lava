@@ -1,5 +1,5 @@
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE RecordWildCards, ViewPatterns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 module MOS6502.ALU where
@@ -19,6 +19,12 @@ data ALUIn clk = ALUIn { aluInC :: Signal clk Bool
 data ALUOut clk = ALUOut{ aluOutC :: Signal clk (Enabled Bool)
                         , aluOutV :: Signal clk (Enabled Bool)
                         }
+
+packALUOut :: ALUOut clk -> Signal clk (Enabled Bool, Enabled Bool)
+packALUOut ALUOut{..} = pack (aluOutC, aluOutV)
+
+unpackALUOut :: Signal clk (Enabled Bool, Enabled Bool) -> ALUOut clk
+unpackALUOut (unpack -> (aluOutC, aluOutV)) = ALUOut{..}
 
 data BinOp = ORA
            | AND
@@ -51,10 +57,10 @@ instance BitRep UnOp where
 $(repBitRep ''UnOp 3)
 
 binaryALU :: forall clk. (Clock clk)
-          => Signal clk BinOp
-          -> ALUIn clk -> Signal clk Byte -> Signal clk Byte
+          => ALUIn clk -> Signal clk Byte -> Signal clk Byte
+          -> Signal clk BinOp
           -> (ALUOut clk, Signal clk Byte)
-binaryALU op flags arg1 arg2 = (ALUOut{..}, result)
+binaryALU flags arg1 arg2 op = (ALUOut{..}, result)
   where
     (result, aluOutC, aluOutV) = unpack $ ops .!. bitwise op
 
@@ -88,10 +94,10 @@ binaryALU op flags arg1 arg2 = (ALUOut{..}, result)
     cmpS = (arg1 - arg2, enabledS $ arg1 .>=. arg2, disabledS)
 
 unaryALU :: forall clk. (Clock clk)
-         => Signal clk UnOp
-         -> ALUIn clk -> Signal clk Byte
+         => ALUIn clk -> Signal clk Byte
+         -> Signal clk UnOp
          -> (ALUOut clk, Signal clk Byte)
-unaryALU op ALUIn{..} arg1 = (ALUOut{..}, result)
+unaryALU ALUIn{..} arg1 op = (ALUOut{..}, result)
   where
     (result, aluOutC) = unpack $ ops .!. bitwise op
     aluOutV = disabledS
@@ -120,9 +126,9 @@ unaryALU op ALUIn{..} arg1 = (ALUOut{..}, result)
 cmpALU :: forall clk. (Clock clk)
        => Signal clk Byte -> Signal clk Byte
        -> (ALUOut clk, Signal clk Byte)
-cmpALU arg1 arg2 = (ALUOut{..}, arg1 - arg2)
+cmpALU arg1 arg2 = (ALUOut{..}, arg2 - arg1)
   where
-    aluOutC = enabledS $ arg1 .>=. arg2
+    aluOutC = enabledS $ arg1 .<=. arg2
     aluOutV = disabledS
 
 addExtend :: (Clock clk)

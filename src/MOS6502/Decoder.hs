@@ -3,7 +3,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE QuasiQuotes, TemplateHaskell #-}
 module MOS6502.Decoder
-       ( Addressing(..), Decoded(..), decode
+       ( AddrMode(..), AddrOffset(..)
+       , Decoded(..), decode
        , ArgReg(..), BranchFlag(..)
        , ALUOp(..), aluBinOp, aluUnOp
        ) where
@@ -17,6 +18,21 @@ import Language.KansasLava
 import Data.Sized.Ix
 import Data.Sized.Unsigned
 import Data.Tuple (swap)
+
+data AddrMode = AddrNone
+              | AddrImm
+              | AddrZP
+              | AddrIndirect
+              | AddrDirect
+              deriving (Eq, Ord, Show, Enum, Bounded)
+$(repBitRep ''AddrMode 3); instance BitRep AddrMode where bitRep = bitRepEnum
+
+data AddrOffset = OffsetNone
+                | OffsetPreAddX
+                | OffsetPreAddY
+                | OffsetPostAddY
+              deriving (Eq, Ord, Show, Enum, Bounded)
+$(repBitRep ''AddrOffset 2); instance BitRep AddrOffset where bitRep = bitRepEnum
 
 data Addressing clk = Addressing{ addrNone :: Signal clk Bool
                                 , addrImm :: Signal clk Bool
@@ -34,20 +50,14 @@ data BranchFlag = BranchN
                 | BranchC
                 | BranchZ
                 deriving (Eq, Ord, Show, Enum, Bounded)
-$(repBitRep ''BranchFlag 2)
-
-instance BitRep BranchFlag where
-    bitRep = bitRepEnum
+$(repBitRep ''BranchFlag 2); instance BitRep BranchFlag where bitRep = bitRepEnum
 
 data ArgReg = RegA
             | RegX
             | RegY
             | RegSP
             deriving (Eq, Ord, Show, Enum, Bounded)
-$(repBitRep ''ArgReg 2)
-
-instance BitRep ArgReg where
-    bitRep = bitRepEnum
+$(repBitRep ''ArgReg 2); instance BitRep ArgReg where bitRep = bitRepEnum
 
 data ALUOp = ALUBin BinOp
            | ALUUn UnOp
@@ -106,13 +116,11 @@ instance BitRep OpClass where
           , let b' = bits (if b then "1" else "0") :: BitPat X1
           ]
 
-data Decoded clk = Decoded{ dAddr :: Addressing clk
+data Decoded clk = Decoded{ dAddrMode :: Signal clk AddrMode
+                          , dAddrOffset :: Signal clk AddrOffset
                           , dSourceReg :: Signal clk (Enabled ArgReg)
                           , dReadMem :: Signal clk Bool
                           , dALU :: Signal clk (Enabled ALUOp)
-                          -- , dUseBinALU :: Signal clk (Enabled BinOp)
-                          -- , dUseUnALU :: Signal clk (Enabled UnOp)
-                          -- , dUseCmpALU :: Signal clk Bool
                           , dUpdateFlags :: Signal clk Bool
                           , dTargetReg :: Signal clk (Enabled ArgReg)
                           , dWriteMem :: Signal clk Bool
@@ -126,7 +134,6 @@ data Decoded clk = Decoded{ dAddr :: Addressing clk
                           , dRTS :: Signal clk Bool
                           , dBRK :: Signal clk Bool
                           , dRTI :: Signal clk Bool
-                          -- , dBIT :: Signal clk Bool
                           }
                  deriving Show
 
@@ -160,6 +167,19 @@ decode op = Decoded{..}
 
     dPush = op `elemS` [0x48, 0x08]
     dPop = op `elemS` [0x68, 0x28]
+
+    dAddrMode = muxN [ (addrNone, pureS AddrNone)
+                     , (addrImm, pureS AddrImm)
+                     , (addrZP, pureS AddrZP)
+                     , (addrIndirect, pureS AddrIndirect)
+                     , (addrDirect, pureS AddrDirect)
+                     ]
+
+    dAddrOffset = muxN [ (addrPreAddX, pureS OffsetPreAddX)
+                       , (addrPreAddY, pureS OffsetPreAddY)
+                       , (addrPostAddY, pureS OffsetPostAddY)
+                       , (high, pureS OffsetNone)
+                       ]
 
     dAddr@Addressing{..} = Addressing{..}
       where
