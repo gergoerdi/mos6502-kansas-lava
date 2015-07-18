@@ -67,8 +67,8 @@ data ALUOp = ALUBin BinOp
 $(repBitRep ''ALUOp 5)
 
 instance BitRep ALUOp where
-    bitRep = concat [ [(ALUBin bin, bits "00" & rep) | (bin, rep) <- bitRep]
-                    , [(ALUUn un, bits "01" & rep) | (un, rep) <- bitRep]
+    bitRep = concat [ [(ALUBin, bits "00")] &* bitRep
+                    , [(ALUUn, bits "01")] &* bitRep
                     , [(ALUCmp, bits "10000")]
                     , [(ALUBIT, bits "11000")]
                     ]
@@ -100,8 +100,8 @@ data OpClass = OpALU ALUOp
 $(repBitRep ''OpClass 9)
 
 instance BitRep OpClass where
-    bitRep = concat [ [(OpALU aluOp, bits "0000" & rep) | (aluOp, rep) <- bitRep]
-                    , withBool [(OpBranch flag, bits "0001" & repFlag) | (flag, repFlag) <- bitRep]
+    bitRep = concat [ [(OpALU, bits "0000")] &* bitRep
+                    , [(OpBranch, bits "0001")] &* bitRep &* bools
                     , [ (cls, bs & bits "00000")
                       | (i, cls) <- zip [2 :: U4 ..] atomicClasses
                       , let bs = BitPat . toRep . optX . Just $ i :: BitPat X4
@@ -110,23 +110,21 @@ instance BitRep OpClass where
       where
         atomicClasses = [OpJump, OpPush, OpPop, OpJSR, OpRTS, OpBRK, OpRTI]
 
-        withBool = concatMap $ \(mkValue, rep) ->
-          [(mkValue b, rep & b')
-          | b <- [True, False]
-          , let b' = bits (if b then "1" else "0") :: BitPat X1
-          ]
+        bools = [ (False, bits "0" :: BitPat X1)
+                , (True, bits "1")
+                ]
 
 data Decoded clk = Decoded{ dAddrMode :: Signal clk AddrMode
                           , dAddrOffset :: Signal clk AddrOffset
                           , dSourceReg :: Signal clk (Enabled ArgReg)
                           , dReadMem :: Signal clk Bool
-                          , dALU :: Signal clk (Enabled ALUOp)
                           , dUpdateFlags :: Signal clk Bool
                           , dTargetReg :: Signal clk (Enabled ArgReg)
                           , dWriteMem :: Signal clk Bool
-                          , dBranch :: Signal clk (Enabled (BranchFlag, Bool))
                           , dWriteFlag :: Signal clk (Enabled (X8, Bool))
                           , dWriteFlags :: Signal clk Bool
+                          , dALU :: Signal clk (Enabled ALUOp)
+                          , dBranch :: Signal clk (Enabled (BranchFlag, Bool))
                           , dJump :: Signal clk Bool
                           , dPush :: Signal clk Bool
                           , dPop :: Signal clk Bool
@@ -181,7 +179,7 @@ decode op = Decoded{..}
                        , (high, pureS OffsetNone)
                        ]
 
-    dAddr@Addressing{..} = Addressing{..}
+    Addressing{..} = Addressing{..}
       where
         addrNone = muxN [ (isBinOp, low)
                         , (isUnOp, isUnA .||. isUnX .||. isTXA .||. isTXS .||. isTSX)

@@ -1,8 +1,11 @@
 {-# LANGUAGE RankNTypes, ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies, FlexibleContexts #-}
 module MOS6502.Utils where
 
 import Language.KansasLava
 import Language.KansasLava.Signal
+import Data.Sized.Arith
+import Data.Sized.Ix
 
 memoryMapping :: (Clock clk, Rep a)
               => [(Signal clk Bool, Signal clk a)]
@@ -58,3 +61,7 @@ risingEdge sig = runRTL $ do
 f .=<<. s = packEnabled (isEnabled s .&&. isEnabled s') $ enabledVal s'
   where
     s' = f (enabledVal s)
+
+(&*) :: forall a b n n'. (Size n, Size n', Size (ADD n n'), n ~ SUB (ADD n n') n', n' ~ SUB (ADD n n') n)
+     => [(a -> b, BitPat n)] -> [(a, BitPat n')] -> [(b, BitPat (ADD n n'))]
+mks &* args = [(mk arg, mkRep & argRep) | (mk, mkRep) <- mks, (arg, argRep) <- args]
