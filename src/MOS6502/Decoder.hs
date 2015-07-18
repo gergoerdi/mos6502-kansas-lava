@@ -6,7 +6,7 @@ module MOS6502.Decoder
        ( AddrMode(..), AddrOffset(..)
        , ArgReg(..), BranchFlag(..)
        , JumpCall(..), PushPop(..)
-       , OpClass(..)
+       , OpClass(..), opBranch
        , ALUOp(..), aluBinOp, aluUnOp
        , Decoded(..), decode
        ) where
@@ -109,15 +109,20 @@ data OpClass = OpALU ALUOp
 $(repBitRep ''OpClass 8)
 
 instance BitRep OpClass where
-    bitRep = concat [ [(OpALU,      bits ("000"))           ] &* bitRep
-                    , [(OpBranch,   bits ("001" ++ "00"))   ] &* bitRep     &* bitRepEnum
-                    , [(OpFlag,     bits ("010" ++ "0"))    ] &* bitRepEnum &* bitRepEnum
-                    , [(OpJumpCall, bits ("011" ++ "0000")) ] &* bitRep
-                    , [(OpPushPop,  bits ("100" ++ "0000")) ] &* bitRep
-                    , [(OpRTS,      bits ("101" ++ "00000"))]
-                    , [(OpRTI,      bits ("110" ++ "00000"))]
-                    , [(OpBRK,      bits ("111" ++ "00000"))]
+    bitRep = concat [ [(OpALU,      bits (           "000"))] &* bitRep
+                    , [(OpBranch,   bits ("00"    ++ "001"))] &* bitRep     &* bitRepEnum
+                    , [(OpFlag,     bits ("0"     ++ "010"))] &* bitRepEnum &* bitRepEnum
+                    , [(OpJumpCall, bits ("0000"  ++ "011"))] &* bitRep
+                    , [(OpPushPop,  bits ("0000"  ++ "100"))] &* bitRep
+                    , [(OpRTS,      bits ("00000" ++ "101"))]
+                    , [(OpRTI,      bits ("00000" ++ "110"))]
+                    , [(OpBRK,      bits ("00000" ++ "111"))]
                     ]
+
+opBranch :: forall clk. Signal clk OpClass -> Signal clk (Enabled (BranchFlag, Bool))
+opBranch op = packEnabled (sel .==. [b|00001|]) val
+  where
+    (sel :: Signal clk U5, val) = unappendS $ op
 
 data Decoded clk = Decoded{ dAddrMode :: Signal clk AddrMode
                           , dAddrOffset :: Signal clk AddrOffset
@@ -129,7 +134,6 @@ data Decoded clk = Decoded{ dAddrMode :: Signal clk AddrMode
                           , dWriteFlags :: Signal clk Bool
                           , dOp :: Signal clk OpClass
                           , dALU :: Signal clk (Enabled ALUOp)
-                          , dBranch :: Signal clk (Enabled (BranchFlag, Bool))
                           , dWriteFlag :: Signal clk (Enabled (X8, Bool))
                           }
                  deriving Show
@@ -331,9 +335,9 @@ decode op = Decoded{..}
 
     dWriteFlag = packEnabled isChangeFlag $ pack (flag, setFlag)
 
-    dOp = muxN [ muxMatch dALU $ funMap (return . OpALU)
-               , muxMatch dBranch $ funMap (return . uncurry OpBranch)
+    dOp = muxN [ muxMatch dBranch $ funMap (return . uncurry OpBranch)
                , muxMatch dWriteFlag $ funMap (return . uncurry OpFlag)
+               , muxMatch dALU $ funMap (return . OpALU)
                , (dJump, pureS $ OpJumpCall Jump)
                , (dPush, pureS $ OpPushPop Push)
                , (dPop, pureS $ OpPushPop Pop)

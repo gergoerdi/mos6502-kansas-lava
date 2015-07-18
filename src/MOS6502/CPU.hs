@@ -229,7 +229,7 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                       (argWord + unsigned addrPreOffset,
                        unsigned $ argByte + addrPreOffset)
         run1 = do
-            caseEx [ match dBranch $ \branch -> do
+            caseEx [ match (opBranch dOp) $ \branch -> do
                           let (selector, target) = unpack branch
                           let branchFlag = branchFlags .!. bitwise selector
                               branchCond = branchFlag .==. target
