@@ -6,7 +6,7 @@ module MOS6502.Decoder
        ( AddrMode(..), AddrOffset(..)
        , ArgReg(..), BranchFlag(..)
        , JumpCall(..), PushPop(..)
-       , OpClass(..), opBranch
+       , OpClass(..), opALU, opChangeFlag, opBranch
        , ALUOp(..), aluBinOp, aluUnOp
        , Decoded(..), decode
        ) where
@@ -119,10 +119,20 @@ instance BitRep OpClass where
                     , [(OpBRK,      bits ("00000" ++ "111"))]
                     ]
 
-opBranch :: forall clk. Signal clk OpClass -> Signal clk (Enabled (BranchFlag, Bool))
-opBranch op = packEnabled (sel .==. [b|00001|]) val
+opALU :: forall clk. Signal clk OpClass -> Signal clk (Enabled ALUOp)
+opALU op = packEnabled (sel .==. 0x0) val
   where
-    (sel :: Signal clk U5, val) = unappendS $ op
+    (sel :: Signal clk U3, val) = unappendS op
+
+opBranch :: forall clk. Signal clk OpClass -> Signal clk (Enabled (BranchFlag, Bool))
+opBranch op = packEnabled (sel .==. 0x1) val
+  where
+    (sel :: Signal clk U5, val) = unappendS op
+
+opChangeFlag :: forall clk. Signal clk OpClass -> Signal clk (Enabled (X8, Bool))
+opChangeFlag op = packEnabled (sel .==. 0x2) val
+  where
+    (sel :: Signal clk U4, val) = unappendS op
 
 data Decoded clk = Decoded{ dAddrMode :: Signal clk AddrMode
                           , dAddrOffset :: Signal clk AddrOffset
@@ -133,8 +143,6 @@ data Decoded clk = Decoded{ dAddrMode :: Signal clk AddrMode
                           , dWriteMem :: Signal clk Bool
                           , dWriteFlags :: Signal clk Bool
                           , dOp :: Signal clk OpClass
-                          , dALU :: Signal clk (Enabled ALUOp)
-                          , dWriteFlag :: Signal clk (Enabled (X8, Bool))
                           }
                  deriving Show
 

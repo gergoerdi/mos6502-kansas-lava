@@ -182,7 +182,8 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                      , (dAddrMode .==. pureS AddrImm, argByte)
                      , (isEnabled dSourceReg, sourceReg)
                      ]
-    let dUseBinALU = aluBinOp .=<<. dALU
+    let dALU = opALU dOp
+        dUseBinALU = aluBinOp .=<<. dALU
         dUseUnALU = aluUnOp .=<<. dALU
         dUseCmpALU = packEnabled (isEnabled dALU .&&. enabledVal dALU .==. pureS ALUCmp) sourceReg
         dUseALU = isEnabled dUseBinALU .||. isEnabled dUseUnALU .||. isEnabled dUseCmpALU
@@ -250,7 +251,7 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                           s := pureS WaitRead
                    , IF (dAddrMode `elemS` [AddrNone, AddrImm]) $ do
                           writeTarget
-                          CASE [ match dWriteFlag $ uncurry writeFlag . unpack ]
+                          CASE [ match (opChangeFlag dOp) $ uncurry writeFlag . unpack ]
                           rNextA := var rPC
                           s := pureS Fetch1
                    , IF (dOp .==. pureS (OpJumpCall Call)) $ do
