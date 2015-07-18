@@ -71,8 +71,8 @@ $(repBitRep ''ALUOp 5)
 instance BitRep ALUOp where
     bitRep = concat [ [(ALUBin, bits "00")] &* bitRep
                     , [(ALUUn, bits "01")] &* bitRep
-                    , [(ALUCmp, bits "10000")]
-                    , [(ALUBIT, bits "11000")]
+                    , [(ALUCmp, bits "00010")]
+                    , [(ALUBIT, bits "00011")]
                     ]
 
 aluBinOp :: forall clk. Signal clk ALUOp -> Signal clk (Enabled BinOp)
@@ -80,14 +80,14 @@ aluBinOp s = muxN [ (sel .==. [b|00|], enabledS bin)
                   , (high, disabledS)
                   ]
   where
-    (sel :: Signal clk X4, bin) = swap . unappendS $ s
+    (sel :: Signal clk X4, bin) = unappendS $ s
 
 aluUnOp :: forall clk. Signal clk ALUOp -> Signal clk (Enabled UnOp)
 aluUnOp s = muxN [ (sel .==. [b|01|], enabledS un)
                  , (high, disabledS)
                  ]
   where
-    (sel :: Signal clk X4, un) = swap . unappendS $ s
+    (sel :: Signal clk X4, un) = unappendS $ s
 
 data JumpCall = Jump | Call
               deriving (Eq, Ord, Show, Enum, Bounded)
