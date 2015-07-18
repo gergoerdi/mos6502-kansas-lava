@@ -65,6 +65,6 @@ f .=<<. s = packEnabled (isEnabled s .&&. isEnabled s') $ enabledVal s'
   where
     s' = f (enabledVal s)
 
-(&*) :: forall a b n n'. (Size n, Size n', Size (ADD n n'), n ~ SUB (ADD n n') n', n' ~ SUB (ADD n n') n)
-     => [(a -> b, BitPat n)] -> [(a, BitPat n')] -> [(b, BitPat (ADD n n'))]
-mks &* args = [(mk arg, mkRep & argRep) | (mk, mkRep) <- mks, (arg, argRep) <- args]
+(&*) :: forall a b n n'. (Size n, Size n', Size (ADD n' n), n ~ SUB (ADD n' n) n', n' ~ SUB (ADD n' n) n)
+     => [(a -> b, BitPat n)] -> [(a, BitPat n')] -> [(b, BitPat (ADD n' n))]
+mks &* args = [(mk arg, argRep & mkRep) | (mk, mkRep) <- mks, (arg, argRep) <- args]
