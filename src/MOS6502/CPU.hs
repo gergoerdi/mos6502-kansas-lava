@@ -245,7 +245,7 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                                       rPC := argWord
                                       s := pureS Fetch1
                                ]
-                   , IF (dOp .==. pureS (OpPushPop Pop)) $ do
+                   , match (opPop dOp) $ \_arg -> do
                           rSP := reg rSP + 1
                           rNextA := popTarget
                           s := pureS WaitRead
@@ -289,7 +289,9 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                                       s := pureS WaitRead
                                ]
                    , OTHERWISE $ do
-                          WHEN dWriteFlags $ writeFlags argByte
+                          CASE [ match (opPop dOp) $ \arg -> do
+                                     WHEN (arg .==. pureS StackArgP) $ writeFlags argByte
+                               ]
                           writeTarget
                           CASE [ IF dWriteMem $ do
                                       rNextW := enabledS res
@@ -343,12 +345,12 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                             rSP := reg rSP + 1
                             rNextA := popTarget
                             s := pureS WaitRead
-                     , IF (dOp .==. pureS (OpPushPop Push)) $ do
+                     , match (opPush dOp) $ \arg -> do
                             rSP := reg rSP - 1
                             rNextA := pushTarget
-                            rNextW := enabledS $ mux (op .==. 0x08) (reg rA, flagsBRK)
+                            rNextW := enabledS $ mux (arg .==. pureS StackArgP) (reg rA, flagsBRK)
                             s := pureS WaitWrite
-                     , IF (dOp .==. pureS (OpPushPop Pop)) $ do
+                     , match (opPop dOp) $ \_arg -> do
                             rSP := reg rSP + 1
                             rNextA := popTarget
                             s := pureS WaitRead

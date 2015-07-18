@@ -5,8 +5,8 @@
 module MOS6502.Decoder
        ( AddrMode(..), AddrOffset(..)
        , ArgReg(..), BranchFlag(..)
-       , JumpCall(..), PushPop(..)
-       , OpClass(..), opALU, opChangeFlag, opBranch
+       , JumpCall(..), PushPop(..), StackArg(..)
+       , OpClass(..), opALU, opChangeFlag, opBranch, opPush, opPop
        , ALUOp(..), aluBinOp, aluUnOp
        , Decoded(..), decode
        ) where
@@ -97,11 +97,15 @@ data PushPop = Push | Pop
               deriving (Eq, Ord, Show, Enum, Bounded)
 $(repBitRep ''PushPop 1); instance BitRep PushPop where bitRep = bitRepEnum
 
+data StackArg = StackArgA | StackArgP
+              deriving (Eq, Ord, Show, Enum, Bounded)
+$(repBitRep ''StackArg 1); instance BitRep StackArg where bitRep = bitRepEnum
+
 data OpClass = OpALU ALUOp
              | OpBranch BranchFlag Bool
              | OpFlag X8 Bool
              | OpJumpCall JumpCall
-             | OpPushPop PushPop
+             | OpPushPop PushPop StackArg
              | OpRTS
              | OpRTI
              | OpBRK
@@ -113,7 +117,7 @@ instance BitRep OpClass where
                     , [(OpBranch,   bits ("00"    ++ "001"))] &* bitRep     &* bitRepEnum
                     , [(OpFlag,     bits ("0"     ++ "010"))] &* bitRepEnum &* bitRepEnum
                     , [(OpJumpCall, bits ("0000"  ++ "011"))] &* bitRep
-                    , [(OpPushPop,  bits ("0000"  ++ "100"))] &* bitRep
+                    , [(OpPushPop,  bits ("000"   ++ "100"))] &* bitRep     &* bitRep
                     , [(OpRTS,      bits ("00000" ++ "101"))]
                     , [(OpRTI,      bits ("00000" ++ "110"))]
                     , [(OpBRK,      bits ("00000" ++ "111"))]
@@ -134,6 +138,18 @@ opChangeFlag op = packEnabled (sel .==. 0x2) val
   where
     (sel :: Signal clk U4, val) = unappendS op
 
+opPush :: forall clk. Signal clk OpClass -> Signal clk (Enabled StackArg)
+opPush op = packEnabled (sel .==. 0x4 .&&. dir .==. pureS Push) arg
+  where
+    (sel :: Signal clk U6, val :: Signal clk (PushPop, StackArg)) = unappendS op
+    (dir, arg) = unpack val
+
+opPop :: forall clk. Signal clk OpClass -> Signal clk (Enabled StackArg)
+opPop op = packEnabled (sel .==. 0x4 .&&. dir .==. pureS Pop) arg
+  where
+    (sel :: Signal clk U6, val :: Signal clk (PushPop, StackArg)) = unappendS op
+    (dir, arg) = unpack val
+
 data Decoded clk = Decoded{ dAddrMode :: Signal clk AddrMode
                           , dAddrOffset :: Signal clk AddrOffset
                           , dSourceReg :: Signal clk (Enabled ArgReg)
@@ -141,7 +157,6 @@ data Decoded clk = Decoded{ dAddrMode :: Signal clk AddrMode
                           , dUpdateFlags :: Signal clk Bool
                           , dTargetReg :: Signal clk (Enabled ArgReg)
                           , dWriteMem :: Signal clk Bool
-                          , dWriteFlags :: Signal clk Bool
                           , dOp :: Signal clk OpClass
                           }
                  deriving Show
@@ -311,7 +326,6 @@ decode op = Decoded{..}
                      , (isSTY, bitNot dWriteA)
                      , (high, low)
                      ]
-    dWriteFlags = op .==. 0x28 -- PLP
 
     dUpdateFlags = muxN [ (isBinOp, binOp ./=. pureS STA)
                         , (isUnOp, bitNot $ unOp .==. pureS STX .&&. bitNot (opBBB `elemS` [[b|010|], [b|110|]]))
@@ -347,8 +361,8 @@ decode op = Decoded{..}
                , muxMatch dWriteFlag $ funMap (return . uncurry OpFlag)
                , muxMatch dALU $ funMap (return . OpALU)
                , (dJump, pureS $ OpJumpCall Jump)
-               , (dPush, pureS $ OpPushPop Push)
-               , (dPop, pureS $ OpPushPop Pop)
+               , (dPush, funMap (return . OpPushPop Push) $ mux (op .==. 0x48) (pureS StackArgP, pureS StackArgA))
+               , (dPop, funMap (return . OpPushPop Pop) $ mux (op .==. 0x68) (pureS StackArgP, pureS StackArgA))
                , (dJSR, pureS $ OpJumpCall Call)
                , (dRTS, pureS OpRTS)
                , (dBRK, pureS OpBRK)
