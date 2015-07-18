@@ -152,6 +152,7 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
     -- Interrupts
     nmi <- newReg False
     irq <- newReg False
+    let isBRK = dOp .==. pureS OpBRK
 
     WHEN ready $ do
         WHEN (fallingEdge cpuNMI) $ nmi := high
@@ -159,11 +160,11 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
 
     servicingNMI <- newReg False
     servicingIRQ <- newReg False
-    let servicingInterrupt = reg servicingNMI .||. reg servicingIRQ .||. dBRK
+    let servicingInterrupt = reg servicingNMI .||. reg servicingIRQ .||. isBRK
 
     let interrupt =
             (bitNot (reg servicingNMI) .&&. bitNot (reg servicingIRQ)) .&&.
-            (reg nmi .||. (reg irq .&&. bitNot (reg fI)) .||. dBRK)
+            (reg nmi .||. (reg irq .&&. bitNot (reg fI)) .||. isBRK)
 
     rNextA <- newReg 0x0000
     rNextW <- newReg Nothing
@@ -235,7 +236,7 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                           WHEN branchCond $ do
                               rPC := reg rPC + signed argByte + 1
                           s := pureS Fetch1
-                   , IF dJump $ do
+                   , IF (dOp .==. pureS (OpJumpCall Jump)) $ do
                           CASE [ IF dReadMem $ do
                                       rNextA := argWord
                                       s := pureS FetchVector1
@@ -243,7 +244,7 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                                       rPC := argWord
                                       s := pureS Fetch1
                                ]
-                   , IF dPop $ do
+                   , IF (dOp .==. pureS (OpPushPop Pop)) $ do
                           rSP := reg rSP + 1
                           rNextA := popTarget
                           s := pureS WaitRead
@@ -252,7 +253,7 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                           CASE [ match dWriteFlag $ uncurry writeFlag . unpack ]
                           rNextA := var rPC
                           s := pureS Fetch1
-                   , IF dJSR $ do
+                   , IF (dOp .==. pureS (OpJumpCall Call)) $ do
                           rArgBuf := unsigned (reg rPC)
                           rSP := reg rSP - 2
                           rNextA := pushTarget
@@ -273,7 +274,7 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
 
     let addr2 = argWord + unsigned addrPostOffset
     let run2 = do
-            caseEx [ IF dRTI $ do
+            caseEx [ IF (dOp .==. pureS OpRTI) $ do
                           writeFlags argByte
                           rSP := reg rSP + 2
                           rNextA := popTarget
@@ -315,7 +316,7 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
               s := pureS FetchVector2
           FetchVector2 -> do
               let pc' = (reg rPC .&. 0xFF) .|. (unsigned cpuMemR `shiftL` 8)
-              rPC := mux dRTS (pc', pc' + 1) -- BWAAAAH!
+              rPC := mux (dOp .==. pureS OpRTS) (pc', pc' + 1) -- BWAAAAH!
               rNextA := var rPC
               s := pureS Fetch1
           Fetch1 -> do
@@ -333,20 +334,20 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                             servicingIRQ := reg irq
                             s := pureS WaitPushAddr
                             -- s := pureS Halt
-                     , IF dRTS $ do
+                     , IF (dOp .==. pureS OpRTS) $ do
                             rSP := reg rSP + 2
                             rNextA := popTarget
                             s := pureS FetchVector1
-                     , IF dRTI $ do
+                     , IF (dOp .==. pureS OpRTI) $ do
                             rSP := reg rSP + 1
                             rNextA := popTarget
                             s := pureS WaitRead
-                     , IF dPush $ do
+                     , IF (dOp .==. pureS (OpPushPop Push)) $ do
                             rSP := reg rSP - 1
                             rNextA := pushTarget
                             rNextW := enabledS $ mux (op .==. 0x08) (reg rA, flagsBRK)
                             s := pureS WaitWrite
-                     , IF dPop $ do
+                     , IF (dOp .==. pureS (OpPushPop Pop)) $ do
                             rSP := reg rSP + 1
                             rNextA := popTarget
                             s := pureS WaitRead

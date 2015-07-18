@@ -4,9 +4,11 @@
 {-# LANGUAGE QuasiQuotes, TemplateHaskell #-}
 module MOS6502.Decoder
        ( AddrMode(..), AddrOffset(..)
-       , Decoded(..), decode
        , ArgReg(..), BranchFlag(..)
+       , JumpCall(..), PushPop(..)
+       , OpClass(..)
        , ALUOp(..), aluBinOp, aluUnOp
+       , Decoded(..), decode
        ) where
 
 import MOS6502.Types
@@ -87,30 +89,35 @@ aluUnOp s = muxN [ (sel .==. [b|01|], enabledS un)
   where
     (sel :: Signal clk X4, un) = swap . unappendS $ s
 
+data JumpCall = Jump | Call
+              deriving (Eq, Ord, Show, Enum, Bounded)
+$(repBitRep ''JumpCall 1); instance BitRep JumpCall where bitRep = bitRepEnum
+
+data PushPop = Push | Pop
+              deriving (Eq, Ord, Show, Enum, Bounded)
+$(repBitRep ''PushPop 1); instance BitRep PushPop where bitRep = bitRepEnum
+
 data OpClass = OpALU ALUOp
              | OpBranch BranchFlag Bool
              | OpFlag X8 Bool
-             | OpJump
-             | OpPush
-             | OpPop
-             | OpJSR
+             | OpJumpCall JumpCall
+             | OpPushPop PushPop
              | OpRTS
-             | OpBRK
              | OpRTI
+             | OpBRK
              deriving (Eq, Ord, Show)
-$(repBitRep ''OpClass 9)
+$(repBitRep ''OpClass 8)
 
 instance BitRep OpClass where
-    bitRep = concat [ [(OpALU,    bits ("0000"))        ] &* bitRep
-                    , [(OpBranch, bits ("0001" ++ "00"))] &* bitRep     &* bitRepEnum
-                    , [(OpFlag,   bits ("0010" ++ "0")) ] &* bitRepEnum &* bitRepEnum
-                    , [ (cls, bs & bits "00000")
-                      | (i, cls) <- zip [3 :: U4 ..] atomicClasses
-                      , let bs = BitPat . toRep . optX . Just $ i :: BitPat X4
-                      ]
+    bitRep = concat [ [(OpALU,      bits ("000"))           ] &* bitRep
+                    , [(OpBranch,   bits ("001" ++ "00"))   ] &* bitRep     &* bitRepEnum
+                    , [(OpFlag,     bits ("010" ++ "0"))    ] &* bitRepEnum &* bitRepEnum
+                    , [(OpJumpCall, bits ("011" ++ "0000")) ] &* bitRep
+                    , [(OpPushPop,  bits ("100" ++ "0000")) ] &* bitRep
+                    , [(OpRTS,      bits ("101" ++ "00000"))]
+                    , [(OpRTI,      bits ("110" ++ "00000"))]
+                    , [(OpBRK,      bits ("111" ++ "00000"))]
                     ]
-      where
-        atomicClasses = [OpJump, OpPush, OpPop, OpJSR, OpRTS, OpBRK, OpRTI]
 
 data Decoded clk = Decoded{ dAddrMode :: Signal clk AddrMode
                           , dAddrOffset :: Signal clk AddrOffset
@@ -124,13 +131,6 @@ data Decoded clk = Decoded{ dAddrMode :: Signal clk AddrMode
                           , dALU :: Signal clk (Enabled ALUOp)
                           , dBranch :: Signal clk (Enabled (BranchFlag, Bool))
                           , dWriteFlag :: Signal clk (Enabled (X8, Bool))
-                          , dJump :: Signal clk Bool
-                          , dPush :: Signal clk Bool
-                          , dPop :: Signal clk Bool
-                          , dJSR :: Signal clk Bool
-                          , dRTS :: Signal clk Bool
-                          , dBRK :: Signal clk Bool
-                          , dRTI :: Signal clk Bool
                           }
                  deriving Show
 
@@ -334,10 +334,10 @@ decode op = Decoded{..}
     dOp = muxN [ muxMatch dALU $ funMap (return . OpALU)
                , muxMatch dBranch $ funMap (return . uncurry OpBranch)
                , muxMatch dWriteFlag $ funMap (return . uncurry OpFlag)
-               , (dJump, pureS OpJump)
-               , (dPush, pureS OpPush)
-               , (dPop, pureS OpPop)
-               , (dJSR, pureS OpJSR)
+               , (dJump, pureS $ OpJumpCall Jump)
+               , (dPush, pureS $ OpPushPop Push)
+               , (dPop, pureS $ OpPushPop Pop)
+               , (dJSR, pureS $ OpJumpCall Call)
                , (dRTS, pureS OpRTS)
                , (dBRK, pureS OpBRK)
                , (dRTI, pureS OpRTI)
