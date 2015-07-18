@@ -196,21 +196,20 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
           where
             aluOp opS mkALU  = (isEnabled opS, first packALUOut . mkALU $ enabledVal opS)
 
-    let commitALUFlags = do
-            WHEN dUseALU $ do
-                CASE [ match aluOutC (fC :=) ]
-                CASE [ match aluOutV (fV :=) ]
-            CASE [ IF dBIT $ do
-                        fZ := (reg rA .&. argByte) .==. 0
-                        fV := argByte `testABit` 6
-                        fN := argByte `testABit` 7
-                 , OTHERWISE $ do
-                        fZ := res .==. 0
-                        fN := res `testABit` 7
-                 ]
-
     let writeTarget = do
-            WHEN dUpdateFlags $ commitALUFlags
+            WHEN dUpdateFlags $ do
+                WHEN dUseALU $ do
+                    CASE [ match aluOutC (fC :=) ]
+                    CASE [ match aluOutV (fV :=) ]
+                CASE [ IF dBIT $ do
+                            fZ := (reg rA .&. argByte) .==. 0
+                            fV := argByte `testABit` 6
+                            fN := argByte `testABit` 7
+                     , OTHERWISE $ do
+                            fZ := res .==. 0
+                            fN := res `testABit` 7
+                     ]
+
             CASE [ match dTargetReg $ flip switch $ \case
                         RegA -> rA := res
                         RegX -> rX := res

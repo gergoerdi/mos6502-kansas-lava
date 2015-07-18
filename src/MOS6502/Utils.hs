@@ -43,6 +43,9 @@ muxN2 :: forall clk a b. (Rep a, Rep b)
       => [(Signal clk Bool, (Signal clk a, Signal clk b))] -> (Signal clk a, Signal clk b)
 muxN2 = unpack . muxN . map (\(sel, xy) -> (sel, pack xy :: Signal clk (a, b)))
 
+muxMatch :: (Rep a) => Signal clk (Enabled a) -> (Signal clk a -> Signal clk b) -> (Signal clk Bool, Signal clk b)
+muxMatch s f = (isEnabled s, f (enabledVal s))
+
 fallingEdge :: (Clock clk) => Signal clk Bool -> Signal clk Bool
 fallingEdge sig = runRTL $ do
     prev <- newReg False

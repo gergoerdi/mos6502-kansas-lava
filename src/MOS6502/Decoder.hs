@@ -89,6 +89,7 @@ aluUnOp s = muxN [ (sel .==. [b|01|], enabledS un)
 
 data OpClass = OpALU ALUOp
              | OpBranch BranchFlag Bool
+             | OpFlag X8 Bool
              | OpJump
              | OpPush
              | OpPop
@@ -100,19 +101,16 @@ data OpClass = OpALU ALUOp
 $(repBitRep ''OpClass 9)
 
 instance BitRep OpClass where
-    bitRep = concat [ [(OpALU, bits "0000")] &* bitRep
-                    , [(OpBranch, bits "0001")] &* bitRep &* bools
+    bitRep = concat [ [(OpALU,    bits ("0000"))        ] &* bitRep
+                    , [(OpBranch, bits ("0001" ++ "00"))] &* bitRep     &* bitRepEnum
+                    , [(OpFlag,   bits ("0010" ++ "0")) ] &* bitRepEnum &* bitRepEnum
                     , [ (cls, bs & bits "00000")
-                      | (i, cls) <- zip [2 :: U4 ..] atomicClasses
+                      | (i, cls) <- zip [3 :: U4 ..] atomicClasses
                       , let bs = BitPat . toRep . optX . Just $ i :: BitPat X4
                       ]
                     ]
       where
         atomicClasses = [OpJump, OpPush, OpPop, OpJSR, OpRTS, OpBRK, OpRTI]
-
-        bools = [ (False, bits "0" :: BitPat X1)
-                , (True, bits "1")
-                ]
 
 data Decoded clk = Decoded{ dAddrMode :: Signal clk AddrMode
                           , dAddrOffset :: Signal clk AddrOffset
@@ -121,10 +119,11 @@ data Decoded clk = Decoded{ dAddrMode :: Signal clk AddrMode
                           , dUpdateFlags :: Signal clk Bool
                           , dTargetReg :: Signal clk (Enabled ArgReg)
                           , dWriteMem :: Signal clk Bool
-                          , dWriteFlag :: Signal clk (Enabled (X8, Bool))
                           , dWriteFlags :: Signal clk Bool
+                          , dOp :: Signal clk OpClass
                           , dALU :: Signal clk (Enabled ALUOp)
                           , dBranch :: Signal clk (Enabled (BranchFlag, Bool))
+                          , dWriteFlag :: Signal clk (Enabled (X8, Bool))
                           , dJump :: Signal clk Bool
                           , dPush :: Signal clk Bool
                           , dPop :: Signal clk Bool
@@ -146,7 +145,7 @@ decode op = Decoded{..}
     binOp = bitwise opAAA
     isUnOp = opCC .==. [b|10|] .&&.
              -- bitNot (unOp `elemS` [Un_Special_1, Un_Special_2]) .&&.
-             bitNot (op .==. 0xEA) -- NOP
+             bitNot isNOP
     unOp = bitwise opAAA
     isUnA = unOp `elemS` [ASL, ROL, LSR, ROR, LDX] .&&. opBBB .==. [b|010|]
     isUnX = unOp `elemS` [DEC] .&&. opBBB .==. [b|010|]
@@ -156,6 +155,7 @@ decode op = Decoded{..}
     isTXS = op .==. 0x9a
     isTSX = op .==. 0xba
     isLDY = opCC .==. [b|00|] .&&. opAAA .==. [b|101|]
+    isNOP = op .==. 0xEA
     dJSR = op .==. 0x20
     dJump = op `elemS` [0x4C, 0x6C]
     dRTS = op .==. 0x60
@@ -216,6 +216,7 @@ decode op = Decoded{..}
                 , (isEnabled dUseUnALU, enabledS . funMap (return . ALUUn) . enabledVal $ dUseUnALU)
                 , (dUseCmpALU, enabledS . pureS $ ALUCmp)
                 , (dBIT, enabledS . pureS $ ALUBIT)
+                , (isNOP, enabledS $ pureS $ ALUUn LDX)
                 , (high, disabledS)
                 ]
 
@@ -329,3 +330,15 @@ decode op = Decoded{..}
                          ]
 
     dWriteFlag = packEnabled isChangeFlag $ pack (flag, setFlag)
+
+    dOp = muxN [ muxMatch dALU $ funMap (return . OpALU)
+               , muxMatch dBranch $ funMap (return . uncurry OpBranch)
+               , muxMatch dWriteFlag $ funMap (return . uncurry OpFlag)
+               , (dJump, pureS OpJump)
+               , (dPush, pureS OpPush)
+               , (dPop, pureS OpPop)
+               , (dJSR, pureS OpJSR)
+               , (dRTS, pureS OpRTS)
+               , (dBRK, pureS OpBRK)
+               , (dRTI, pureS OpRTI)
+               ]
