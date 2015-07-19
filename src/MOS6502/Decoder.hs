@@ -241,7 +241,7 @@ decode' 0x48 = pushPop Push StackArgA -- PHA
 decode' 0x49 = bin AddrImm OffsetNone EOR -- EOR
 decode' 0x4A = un AddrNone OffsetNone LSR -- LSR
 decode' 0x4B = unsupported -- ALR
-decode' 0x4C = jumpCall Call False -- JMP
+decode' 0x4C = jumpCall Jump False -- JMP
 decode' 0x4D = bin AddrDirect OffsetNone EOR -- EOR
 decode' 0x4E = un AddrDirect OffsetNone LSR -- LSR
 decode' 0x4F = unsupported -- SRE
@@ -273,7 +273,7 @@ decode' 0x68 = pushPop Pop StackArgA -- PLA
 decode' 0x69 = bin AddrImm OffsetNone ADC -- ADC
 decode' 0x6A = un AddrNone OffsetNone ROR -- ROR
 decode' 0x6B = unsupported -- ALR
-decode' 0x6C = jumpCall Call True -- JMP
+decode' 0x6C = jumpCall Jump True -- JMP
 decode' 0x6D = bin AddrDirect OffsetNone ADC -- ADC
 decode' 0x6E = un AddrDirect OffsetNone ROR -- ROR
 decode' 0x6F = unsupported -- RRA
@@ -347,7 +347,7 @@ decode' 0xB2 = kill
 decode' 0xB3 = unsupported -- LAX
 decode' 0xB4 = ldy AddrZP OffsetPreAddX -- LDY
 decode' 0xB5 = lda AddrZP OffsetPreAddX -- LDA
-decode' 0xB6 = ldx AddrZP OffsetPreAddX -- LDX
+decode' 0xB6 = ldx AddrZP OffsetPreAddY -- LDX
 decode' 0xB7 = unsupported -- LAX
 decode' 0xB8 = setFlag 6 False -- CLV
 decode' 0xB9 = lda AddrDirect OffsetPreAddY -- LDA
@@ -355,7 +355,7 @@ decode' 0xBA = unRR RegSP RegX STX -- TSX
 decode' 0xBB = unsupported -- LAS
 decode' 0xBC = ldy AddrDirect OffsetPreAddX -- LDY
 decode' 0xBD = lda AddrDirect OffsetPreAddX -- LDA
-decode' 0xBE = ldx AddrDirect OffsetPreAddX -- LDX
+decode' 0xBE = ldx AddrDirect OffsetPreAddY -- LDX
 decode' 0xBF = unsupported -- LAX
 decode' 0xC0 = cpy AddrImm OffsetNone -- CPY
 decode' 0xC1 = cmp AddrIndirect OffsetPreAddX -- CMP
@@ -394,11 +394,11 @@ decode' 0xE1 = bin AddrIndirect OffsetPostAddY SBC -- SBC
 decode' 0xE2 = unsupported -- NOP
 decode' 0xE3 = unsupported -- ISC
 decode' 0xE4 = cpx AddrZP OffsetNone -- CPX
-decode' 0xE5 = bin AddrZP OffsetPreAddX SBC -- SBC
+decode' 0xE5 = bin AddrZP OffsetNone SBC -- SBC
 decode' 0xE6 = un AddrZP OffsetPreAddX INC -- INC
 decode' 0xE7 = unsupported -- ISC
 decode' 0xE8 = unRR RegX RegX INC -- INX
-decode' 0xE9 = bin AddrDirect OffsetPreAddY SBC -- SBC
+decode' 0xE9 = bin AddrImm OffsetNone SBC -- SBC
 decode' 0xEA = nop AddrNone -- NOP
 decode' 0xEB = unsupported -- SBC
 decode' 0xEC = cpx AddrDirect OffsetNone -- CPX
@@ -448,11 +448,11 @@ cmpR reg addr offset = return (addr, (offset, (Just reg, (useMem, (Nothing, (Fal
   where
     useMem = addr /= AddrImm
 stx addr offset = return (addr, (offset, (Just RegX, (False, (Nothing, (True, (OpALU (ALUUn STX), False)))))))
-ldx addr offset = return (addr, (offset, (Nothing, (not useImm, (Just RegX, (False, (OpALU (ALUUn LDX), False)))))))
+ldx addr offset = return (addr, (offset, (Nothing, (not useImm, (Just RegX, (False, (OpALU (ALUUn LDX), True)))))))
   where
     useImm = addr == AddrImm
 sty addr offset = return (addr, (offset, (Just RegY, (False, (Nothing, (True, (OpALU (ALUUn STX), False)))))))
-ldy addr offset = return (addr, (offset, (Nothing, (not useImm, (Just RegY, (False, (OpALU (ALUUn LDX), False)))))))
+ldy addr offset = return (addr, (offset, (Nothing, (not useImm, (Just RegY, (False, (OpALU (ALUUn LDX), True)))))))
   where
     useImm = addr == AddrImm
 
