@@ -253,7 +253,7 @@ findNthIndex i p | i < 1 = error "findNthIndex"
 splitLengths :: (a -> Bool) -> [a] -> [Int]
 splitLengths splitHere = go 0
   where
-    go _ [] = []
+    go n [] = [n]
     go n (x:xs) | splitHere x = n : go 1 xs
                 | otherwise = go (n+1) xs
 
@@ -307,7 +307,7 @@ runTestM test InitialState{..} =
     cpuWait = low
 
     timings :: [Int]
-    timings = take (2 + length program) . splitLengths (== Fetch1) . whileJust . fromS $ cpuState
+    timings = take (2 + length program) . splitLengths (== Fetch1) . take 1000 . whileJust . fromS $ cpuState
 
     listS :: (Rep a) => Signal CLK a -> [[a]]
     listS = map catMaybes . splitInto timings . fromS
