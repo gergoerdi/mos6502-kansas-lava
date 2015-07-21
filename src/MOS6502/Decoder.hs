@@ -457,7 +457,7 @@ ldy addr offset = return (addr, (offset, (Nothing, (not useImm, (Just RegY, (Fal
     useImm = addr == AddrImm
 
 push arg = return (AddrNone, (OffsetNone, (Nothing, (False, (Nothing, (False, (OpPushPop Push arg, False)))))))
-pop arg = return (AddrNone, (OffsetNone, (Nothing, (False, (targetReg, (False, (OpPushPop Pop arg, False)))))))
+pop arg = return (AddrNone, (OffsetNone, (Nothing, (False, (targetReg, (False, (OpPushPop Pop arg, arg /= StackArgP)))))))
   where
     targetReg = case arg of
         StackArgA -> Just RegA
