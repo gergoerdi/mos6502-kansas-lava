@@ -47,9 +47,15 @@ suiteResult image = if targetValue == 0xFF then Pass
                     else Fail $ showByte targetValue
   where
     targetValue = head [ target
-                       | Just (pc, target, (Fetch1, a, p)) <- fromS sig
+                       | Just (pc, target, (Fetch1, (a, (x, (y, p))))) <- fromS sig
                        , let debug = [ showAddr pc
+                                     , "A ="
                                      , showByte a
+                                     , "X ="
+                                     , showByte x
+                                     , "Y ="
+                                     , showByte y
+                                     , "P ="
                                      , showByte p
                                      ]
                        , trace (unwords debug) pc == finishPC
@@ -58,7 +64,7 @@ suiteResult image = if targetValue == 0xFF then Pass
     (pc, ram, CPUDebug{..}) = circuit image
     targetAddr = 0x0210
     finishPC = 0x45C0
-    sig = pack (pc, syncRead ram targetAddr, pack (cpuState, cpuA, cpuP))
+    sig = pack (pc, syncRead ram targetAddr, pack (cpuState, pack (cpuA, pack (cpuX, pack (cpuY, cpuP)))))
 
 showByte :: Byte -> String
 showByte x = '$' : pad0 2 (showHex x "")

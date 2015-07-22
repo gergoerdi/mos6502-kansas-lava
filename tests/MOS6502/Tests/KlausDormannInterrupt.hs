@@ -1,5 +1,5 @@
 {-# LANGUAGE RecordWildCards #-}
-module MOS6502.Tests.KlausDormann (test) where
+module MOS6502.Tests.KlausDormannInterrupt (test) where
 
 import Distribution.TestSuite
 
@@ -9,7 +9,7 @@ import MOS6502.Utils
 
 import Language.KansasLava hiding (Reg)
 import Language.KansasLava.Signal
-import Control.Applicative ((<|>), (<*>), (<$>))
+import Control.Applicative ((<|>))
 import Numeric (showHex)
 import Data.Default
 import Data.Bits
@@ -24,13 +24,11 @@ forceDefined def = shallowMapS (fmap (optX . (<|> Just def) . unX))
 circuit :: ByteString -> (Signal CLK Addr, Signal CLK (Addr -> Byte), CPUDebug CLK)
 circuit image = (cpuPC, ram, debug)
   where
-    start = 0x1000
+    start = 0x0400
 
     cpuInit = def{ initPC = Just start }
     (CPUOut{..}, debug@CPUDebug{..}) = cpu' cpuInit CPUIn{..}
     cpuWait = low
-    cpuIRQ = high
-    cpuNMI = high
 
     romFun :: Addr -> Maybe Byte
     romFun a | a < start = Nothing
@@ -39,27 +37,46 @@ circuit image = (cpuPC, ram, debug)
 
     ram :: Seq (Addr -> Byte)
     ram = writeMemory $ forceDefined Nothing $
-          packEnabled (isEnabled cpuMemW) $
+          packEnabled (isEnabled cpuMemW .&&. isRAM) $
           pack (cpuMemA, enabledVal cpuMemW)
-    ramR = initWith romR $ syncRead ram cpuMemA
+    isRAM = cpuMemA .<. pureS start .||. cpuMemA .>=. 0xF000
+    ramR = syncRead ram cpuMemA
 
-    initWith sROM sRAM = mkShallowS . fmap optX $
-                         (<|>) <$> (unX <$> shallowS sRAM) <*> (unX <$> shallowS sROM)
+    portAddr = 0xBFFC
+    isPort = cpuMemA .==. pureS portAddr
+    portW = packEnabled (isEnabled cpuMemW .&&. isPort) $ enabledVal cpuMemW
+    (cpuIRQ, cpuNMI, portR) = runRTL $ do
+        fireIRQ <- newReg False
+        fireNMI <- newReg False
+        r <- newReg 0
 
-    cpuMemR = forceDefined 0x00 ramR
+        CASE [ match portW $ \x -> do
+                    r := x
+                    fireIRQ := x `testABit` 0
+                    fireNMI := x `testABit` 1
+             ]
+
+        return (bitNot $ reg fireIRQ, bitNot $ reg fireNMI, reg r)
+
+    cpuMemR = forceDefined 0x00 $
+              memoryMapping [ (isRAM, ramR)
+                            , (isPort, portR)
+                            , (high, romR)
+                            ]
 
 suiteResult :: ByteString -> Result
 suiteResult image = if trapPC `elem` targetPCs then Pass
                     else Fail $ showAddr trapPC
   where
-    (pc, _ram, CPUDebug{..}) = circuit image
-    sig = pack (pc, pack (cpuState, pack (cpuA, cpuX, cpuY), cpuP))
-    pcs = [ pc | Just (pc, (Fetch1, (a, x, y), p)) <- fromS sig
+    (pc, ram, CPUDebug{..}) = circuit image
+    sig = pack (pc, syncRead ram 0x0203, pack (cpuState, cpuA, cpuP))
+    pcs = [ pc | Just (pc, iSrc, (Fetch1, a, p)) <- fromS sig
                , let debug = [ showAddr pc
                              , showByte a
-                             , showByte x
-                             , showByte y
                              , showByte p
+                             , if iSrc `testBit` 0 then "BRK" else "   "
+                             , if iSrc `testBit` 1 then "IRQ" else "   "
+                             , if iSrc `testBit` 2 then "NMI" else "   "
                              ]
                 , _ <- trace (unwords debug) $ return ()
                 ]
@@ -80,9 +97,9 @@ showAddr x = '$' : pad0 4 (showHex x "")
 
 test :: IO Test
 test = do
-    image <- BS.readFile "testdata/KlausDormann.obj"
+    image <- BS.readFile "testdata/KlausDormann-Interrupt.obj"
     let t = TestInstance{ run = return $ Finished $ suiteResult image
-                        , name = "KlausDormann"
+                        , name = "KlausDormannInterrupt"
                         , tags = []
                         , options = []
                         , setOption = \_ _ -> Left "unsupported option"

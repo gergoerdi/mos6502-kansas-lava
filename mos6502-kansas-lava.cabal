@@ -70,6 +70,7 @@ test-suite tests
         MOS6502.Tests.Framework
         MOS6502.Tests.AllSuiteA
         MOS6502.Tests.KlausDormann
+        MOS6502.Tests.KlausDormannInterrupt
         MOS6502.Tests
 
   build-depends:

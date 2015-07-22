@@ -7,10 +7,11 @@ import MOS6502.Tests
 import MOS6502.Tests.Framework
 import qualified MOS6502.Tests.AllSuiteA as AllSuiteA
 import qualified MOS6502.Tests.KlausDormann as KlausDormann
+import qualified MOS6502.Tests.KlausDormannInterrupt as KlausDormannInt
 
 tests :: IO [QC.Test]
 tests = do
-    suiteTests <- sequence [ AllSuiteA.test, KlausDormann.test ]
+    suiteTests <- sequence [ AllSuiteA.test, KlausDormannInt.test, KlausDormann.test ]
     return $ suiteTests ++ opTests
   where
     opTests = [ testProperty (testLabel test) (runTest test)
