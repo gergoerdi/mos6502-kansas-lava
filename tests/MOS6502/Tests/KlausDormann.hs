@@ -49,7 +49,7 @@ circuit image = (cpuPC, ram, debug)
     cpuMemR = forceDefined 0x00 ramR
 
 suiteResult :: ByteString -> Result
-suiteResult image = if trapPC `elem` targetPCs then Pass
+suiteResult image = if trapPC == targetPC then Pass
                     else Fail $ showAddr trapPC
   where
     (pc, _ram, CPUDebug{..}) = circuit image
@@ -65,9 +65,7 @@ suiteResult image = if trapPC `elem` targetPCs then Pass
                 ]
 
     trapPC = fst . head $ dropWhile (uncurry (/=)) $ zip pcs (tail pcs)
-    targetPCs = [ 0x06fe -- NMOS 6502 NMI/BRK bug
-                , 0x0700 -- Full success
-                ]
+    targetPC = 0x3B31
 
 showByte :: Byte -> String
 showByte x = '$' : pad0 2 (showHex x "")
