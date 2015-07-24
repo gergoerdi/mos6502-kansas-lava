@@ -319,7 +319,7 @@ decode' 0x96 = stx AddrZP OffsetPreAddY -- STX
 decode' 0x97 = unsupported -- SAX
 decode' 0x98 = unRR RegY RegA STX -- TYA
 decode' 0x99 = sta AddrDirect OffsetPreAddY -- STA
-decode' 0x9A = unRR RegX RegSP STX -- TXS
+decode' 0x9A = unRR' RegX RegSP STX -- TXS
 decode' 0x9B = unsupported -- TAS
 decode' 0x9C = unsupported -- SHY
 decode' 0x9D = sta AddrDirect OffsetPreAddX -- STA
@@ -442,6 +442,7 @@ un addr offset op = return (addr, (offset, (reg, (not useA, (reg, (not useA, (Op
     useA = addr == AddrNone
     reg = if useA then Just RegA else Nothing
 unRR r1 r2 op = return (AddrNone, (OffsetNone, (Just r1, (False, (Just r2, (False, (OpALU (ALUUn op), True)))))))
+unRR' r1 r2 op = return (AddrNone, (OffsetNone, (Just r1, (False, (Just r2, (False, (OpALU (ALUUn op), False)))))))
 cpy = cmpR RegY
 cpx = cmpR RegX
 cmpR reg addr offset = return (addr, (offset, (Just reg, (useMem, (Nothing, (False, (OpALU ALUCmp, True)))))))
