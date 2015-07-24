@@ -33,6 +33,10 @@ library
   Ghc-Options:         -fwarn-unused-imports -fwarn-unused-matches
                        -fwarn-unused-binds -fwarn-missing-signatures
 
+Flag simulator
+  description: Build standalone 6502 simulator
+  default: False
+
 executable mos6502-kansas-lava
   hs-source-dirs:      src
   main-is:             MOS6502/Bench/Main.hs
@@ -40,6 +44,9 @@ executable mos6502-kansas-lava
         MOS6502.Bench
         MOS6502.Bench.Video
         MOS6502.Bench.GTK
+
+  if !flag(simulator)
+    buildable: False
 
   build-depends:
         mos6502-kansas-lava,
