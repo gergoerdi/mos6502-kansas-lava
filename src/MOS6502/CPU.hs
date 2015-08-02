@@ -237,6 +237,14 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                           WHEN branchCond $ do
                               rPC := reg rPC + signed argByte + 1
                           s := pureS Fetch1
+                   , IF (dOp .==. pureS OpRTS) $ do
+                          rSP := reg rSP + 2
+                          rNextA := popTarget
+                          s := pureS FetchVector1
+                   , IF (dOp .==. pureS OpRTI) $ do
+                          rSP := reg rSP + 1
+                          rNextA := popTarget
+                          s := pureS WaitRead
                    , IF (dOp .==. pureS (OpJumpCall Jump)) $ do
                           CASE [ IF dReadMem $ do
                                       rNextA := argWord
@@ -337,14 +345,6 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                             servicingIRQ := reg irq
                             s := pureS WaitPushAddr
                             -- s := pureS Halt
-                     , IF (dOp .==. pureS OpRTS) $ do
-                            rSP := reg rSP + 2
-                            rNextA := popTarget
-                            s := pureS FetchVector1
-                     , IF (dOp .==. pureS OpRTI) $ do
-                            rSP := reg rSP + 1
-                            rNextA := popTarget
-                            s := pureS WaitRead
                      , match (opPush dOp) $ \arg -> do
                             rSP := reg rSP - 1
                             rNextA := pushTarget
