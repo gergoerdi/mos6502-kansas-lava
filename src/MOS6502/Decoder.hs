@@ -9,7 +9,9 @@ module MOS6502.Decoder
        , OpClass(..), opALU, opChangeFlag, opBranch, opPush, opPop
        , ALUOp(..), aluBinOp, aluUnOp
        , Decoded(..), decode
-       , decode', unpackDecoded
+       , decode', unpackDecoded, packDecoded
+       , decodeOld
+       , compareDecode
        ) where
 
 import MOS6502.Types
@@ -472,11 +474,23 @@ bit addr = return (addr, (OffsetNone, (Nothing, (True, (Nothing, (False, (OpALU 
 kill = Nothing
 unsupported = Nothing
 
+packDecoded :: Decoded clk -> Signal clk DecodeData
+packDecoded Decoded{..} = pack (dAddrMode, pack (dAddrOffset, pack (dSourceReg, pack (dReadMem, pack (dTargetReg, pack (dWriteMem, pack (dOp, dUpdateFlags)))))))
+
 unpackDecoded :: Signal clk DecodeData -> Decoded clk
 unpackDecoded (unpack -> (dAddrMode, unpack -> (dAddrOffset, unpack -> (dSourceReg, unpack -> (dReadMem, unpack -> (dTargetReg, unpack -> (dWriteMem, unpack -> (dOp, dUpdateFlags)))))))) = Decoded{..}
 
+compareDecode :: Seq Byte -> Bool
+compareDecode op = case (fromS (packDecoded $ decode op), fromS (packDecoded $ decodeOld op)) of
+    (Just x1:_, Just x2:_) -> x1 == x2
+    _ -> True
+
 decode :: forall clk. (Clock clk) => Signal clk Byte -> Decoded clk
-decode op = Decoded{..}
+decode = unpackDecoded . funMap decode'
+-- decode = decodeOld
+
+decodeOld :: forall clk. (Clock clk) => Signal clk Byte -> Decoded clk
+decodeOld op = Decoded{..}
   where
     -- (opAAA, opBBBCC) = swap . unappendS $ op :: (Signal clk U3, Signal clk U5)
     -- (opBBB, opCC) = swap . unappendS $ opBBBCC :: (Signal clk U3, Signal clk U2)
