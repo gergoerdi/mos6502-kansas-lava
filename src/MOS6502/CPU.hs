@@ -46,8 +46,6 @@ data CPUDebug clk = CPUDebug
     , cpuPC :: Signal clk Addr
     , cpuOp :: Signal clk Byte
     , cpuDecoded :: Decoded clk
-    , cpuIRQQueue :: Signal clk Bool
-    , cpuNMIQueue:: Signal clk Bool
     }
 
 data State = Halt
@@ -113,13 +111,6 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
     let ready = bitNot $ reg s `elemS` [Init, InitTest, Halt]
     rPC <- newReg pc0
 
-    rOp <- newReg 0x00
-    let op = var rOp
-        decoded@Decoded{..} = decode op
-        size1 = dAddrMode .==. pureS AddrNone
-        size2 = dAddrMode `elemS` [AddrImm, AddrZP, AddrIndirect]
-        _size3 = dAddrMode .==. pureS AddrDirect
-
     rArgBuf <- newReg 0x00
     let argByte = cpuMemR
     let argWord = reg rArgBuf `appendS` argByte
@@ -132,7 +123,7 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
     let popTarget = 0x0100 .|. unsigned (reg rSP + 1)
         pushTarget = 0x0100 .|. unsigned (reg rSP)
 
-    -- Flags
+    -- Status flags
     rFlags@[fN, fV, _, _fB, fD, fI, fZ, fC] <- fmap reverse $ mapM (newReg . testBit initP) [0..7]
 
     let flags0 = bitsToByte . Matrix.fromList . map reg . reverse $ rFlags
@@ -149,22 +140,29 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
     let branchFlags :: Signal clk (Matrix (Unsigned (W BranchFlag)) Bool)
         branchFlags = pack . Matrix.fromList . map reg $ [fN, fV, fC, fZ]
 
-    -- Interrupts
+    -- Hardware interrupts
     nmi <- newReg False
     irq <- newReg False
-    let isBRK = dOp .==. pureS OpBRK
 
     WHEN ready $ do
         WHEN (fallingEdge cpuNMI) $ nmi := high
         WHEN (bitNot cpuIRQ .&&. bitNot (reg fI)) $ irq := high
+    let hardInterrupt = reg nmi .||. (reg irq .&&. bitNot (reg fI))
 
-    servicingNMI <- newReg False
-    servicingIRQ <- newReg False
-    let servicingInterrupt = reg servicingNMI .||. reg servicingIRQ .||. isBRK
+    -- Decoder state
+    rOp <- newReg 0x00
+    let op = mux hardInterrupt (var rOp, 0x00)
+        decoded@Decoded{..} = decode op
+        size1 = dAddrMode .==. pureS AddrNone
+        size2 = dAddrMode `elemS` [AddrImm, AddrZP, AddrIndirect]
+        _size3 = dAddrMode .==. pureS AddrDirect
 
-    let interrupt =
-            (bitNot (reg servicingNMI) .&&. bitNot (reg servicingIRQ)) .&&.
-            (reg nmi .||. (reg irq .&&. bitNot (reg fI)) .||. isBRK)
+    -- Interrupt state
+    let isBRK = dOp .==. pureS OpBRK
+        interrupt = hardInterrupt .||. isBRK
+    enteringNMI <- newReg False
+    enteringIRQ <- newReg False
+    let enteringInterrupt = reg enteringNMI .||. reg enteringIRQ .||. isBRK
 
     rNextA <- newReg 0x0000
     rNextW <- newReg Nothing
@@ -341,8 +339,8 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                             rArgBuf := unsigned pc
 
                             rPC := mux (reg nmi) (pureS irqVector, pureS nmiVector)
-                            servicingNMI := reg nmi
-                            servicingIRQ := reg irq
+                            enteringNMI := reg nmi
+                            enteringIRQ := reg irq
                             s := pureS WaitPushAddr
                             -- s := pureS Halt
                      , match (opPush dOp) $ \arg -> do
@@ -359,9 +357,9 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                             s := pureS Fetch1
                      ]
 
-              servicingNMI := low
+              enteringNMI := low
               nmi := low
-              servicingIRQ := low
+              enteringIRQ := low
               irq := low
 
               rPC := reg rPC + 1
@@ -397,11 +395,11 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
               rNextW := enabledS (reg rArgBuf)
               s := pureS WaitWrite
           WaitWrite -> do
-              WHEN servicingInterrupt $ do
+              WHEN enteringInterrupt $ do
                   rSP := reg rSP - 1
                   rNextA := pushTarget
                   -- set B on BRK only
-                  rNextW := enabledS $ mux (reg servicingNMI .||. reg servicingIRQ) (flagsBRK, flagsIRQ)
+                  rNextW := enabledS $ mux (reg enteringNMI .||. reg enteringIRQ) (flagsBRK, flagsIRQ)
                   s := pureS WaitPushInt
               rNextA := reg rPC
               s := pureS Fetch1
@@ -428,8 +426,6 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
         cpuSP = reg rSP
         cpuP = flags
         cpuPC = reg rPC
-        cpuIRQQueue = interrupt -- reg irq
-        cpuNMIQueue = reg nmi
 
     return (CPUOut{..}, CPUDebug{..})
 
