@@ -7,7 +7,6 @@ reset:  lda #$42
 
 sub:
         cli
-        nop
         rts
 
 irq:

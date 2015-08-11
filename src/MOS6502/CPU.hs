@@ -146,7 +146,7 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
 
     WHEN ready $ do
         WHEN (fallingEdge cpuNMI) $ nmi := high
-        WHEN (bitNot cpuIRQ .&&. bitNot (reg fI)) $ irq := high
+        WHEN (bitNot cpuIRQ .&&. bitNot (var fI)) $ irq := high
     newNMI <- newReg False
     newIRQ <- newReg False
 
