@@ -64,16 +64,12 @@ instance BitRep ALUOp where
                     ]
 
 aluBinOp :: forall clk. Signal clk ALUOp -> Signal clk (Enabled BinOp)
-aluBinOp s = muxN [ (sel .==. [b|00|], enabledS bin)
-                  , (high, disabledS)
-                  ]
+aluBinOp s = packEnabled (sel .==. [b|00|])  bin
   where
     (sel :: Signal clk X4, bin) = unappendS $ s
 
 aluUnOp :: forall clk. Signal clk ALUOp -> Signal clk (Enabled UnOp)
-aluUnOp s = muxN [ (sel .==. [b|01|], enabledS un)
-                 , (high, disabledS)
-                 ]
+aluUnOp s = packEnabled (sel .==. [b|01|]) un
   where
     (sel :: Signal clk X4, un) = unappendS $ s
 
@@ -143,9 +139,9 @@ opPop op = packEnabled (sel .==. 0x4 .&&. dir .==. pureS Pop) arg
     (dir, arg) = unpack val
 
 opInterrupt :: forall clk. Signal clk OpClass -> Signal clk (Enabled Interrupt)
-opInterrupt op = packEnabled (sel .==. 0x7) arg
+opInterrupt op = packEnabled (sel .==. 0x7) (bitwise arg)
   where
-    (sel :: Signal clk U6, arg) = unappendS op
+    (sel :: Signal clk U6, arg :: Signal clk U2) = unappendS op
 
 data Decoded clk = Decoded{ dAddrMode :: Signal clk AddrMode
                           , dAddrOffset :: Signal clk AddrOffset
