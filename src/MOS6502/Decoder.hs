@@ -5,8 +5,8 @@
 module MOS6502.Decoder
        ( AddrMode(..), AddrOffset(..)
        , ArgReg(..), BranchFlag(..)
-       , JumpCall(..), PushPop(..), StackArg(..)
-       , OpClass(..), opALU, opChangeFlag, opBranch, opPush, opPop
+       , JumpCall(..), PushPop(..), StackArg(..), Interrupt(..)
+       , OpClass(..), opALU, opChangeFlag, opBranch, opPush, opPop, opInterrupt
        , ALUOp(..), aluBinOp, aluUnOp
        , Decoded(..), decode
        ) where
@@ -89,6 +89,10 @@ data StackArg = StackArgA | StackArgP
               deriving (Eq, Ord, Show, Enum, Bounded)
 $(repBitRep ''StackArg 1); instance BitRep StackArg where bitRep = bitRepEnum
 
+data Interrupt = IntIRQ | IntNMI | IntBRK
+               deriving (Eq, Ord, Show, Enum, Bounded)
+$(repBitRep ''Interrupt 2); instance BitRep Interrupt where bitRep = bitRepEnum
+
 data OpClass = OpALU ALUOp
              | OpBranch BranchFlag Bool
              | OpFlag X8 Bool
@@ -96,8 +100,8 @@ data OpClass = OpALU ALUOp
              | OpPushPop PushPop StackArg
              | OpRTS
              | OpRTI
-             | OpBRK
-             deriving (Eq, Ord, Show)
+             | OpInt Interrupt
+            deriving (Eq, Ord, Show)
 $(repBitRep ''OpClass 8)
 
 instance BitRep OpClass where
@@ -108,7 +112,7 @@ instance BitRep OpClass where
                     , [(OpPushPop,  bits ("000"   ++ "100"))] &* bitRep     &* bitRep
                     , [(OpRTS,      bits ("00000" ++ "101"))]
                     , [(OpRTI,      bits ("00000" ++ "110"))]
-                    , [(OpBRK,      bits ("00000" ++ "111"))]
+                    , [(OpInt,      bits ("000"   ++ "111"))] &* bitRep
                     ]
 
 opALU :: forall clk. Signal clk OpClass -> Signal clk (Enabled ALUOp)
@@ -138,6 +142,11 @@ opPop op = packEnabled (sel .==. 0x4 .&&. dir .==. pureS Pop) arg
     (sel :: Signal clk U6, val :: Signal clk (PushPop, StackArg)) = unappendS op
     (dir, arg) = unpack val
 
+opInterrupt :: forall clk. Signal clk OpClass -> Signal clk (Enabled Interrupt)
+opInterrupt op = packEnabled (sel .==. 0x7) arg
+  where
+    (sel :: Signal clk U6, arg) = unappendS op
+
 data Decoded clk = Decoded{ dAddrMode :: Signal clk AddrMode
                           , dAddrOffset :: Signal clk AddrOffset
                           , dSourceReg :: Signal clk (Enabled ArgReg)
@@ -152,7 +161,7 @@ data Decoded clk = Decoded{ dAddrMode :: Signal clk AddrMode
 type DecodeData = (AddrMode, (AddrOffset, (Enabled ArgReg, (Bool, (Enabled ArgReg, (Bool, (OpClass, Bool)))))))
 
 decode' :: Byte -> Maybe DecodeData
-decode' 0x00 = special OpBRK -- BRK
+decode' 0x00 = return $ interrupt IntBRK -- BRK
 decode' 0x01 = bin AddrIndirect OffsetPreAddX ORA -- ORA
 decode' 0x02 = kill
 decode' 0x03 = unsupported -- SLO
@@ -410,6 +419,9 @@ decode' 0xFE = un AddrDirect OffsetPreAddX INC -- INC
 decode' 0xFF = unsupported -- ISC
 
 
+interrupt :: Interrupt -> DecodeData
+interrupt int = (AddrNone, (OffsetNone, (Nothing, (False, (Nothing, (False, (OpInt int, False)))))))
+
 special :: OpClass -> Maybe DecodeData
 special op = return (AddrNone, (OffsetNone, (Nothing, (False, (Nothing, (False, (op, False)))))))
 
@@ -462,5 +474,9 @@ unsupported = Nothing
 unpackDecoded :: Signal clk DecodeData -> Decoded clk
 unpackDecoded (unpack -> (dAddrMode, unpack -> (dAddrOffset, unpack -> (dSourceReg, unpack -> (dReadMem, unpack -> (dTargetReg, unpack -> (dWriteMem, unpack -> (dOp, dUpdateFlags)))))))) = Decoded{..}
 
-decode :: forall clk. (Clock clk) => Signal clk Byte -> Decoded clk
-decode = unpackDecoded . funMap decode'
+decode :: forall clk. (Clock clk) => Signal clk Bool -> Signal clk Bool -> Signal clk Byte -> Decoded clk
+decode nmi irq op = unpackDecoded $
+                    muxN [ (nmi, pureS $ interrupt IntNMI)
+                         , (irq, pureS $ interrupt IntIRQ)
+                         , (high, funMap decode' op)
+                         ]

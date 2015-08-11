@@ -23,7 +23,7 @@ circuit :: ByteString -> (Signal CLK Addr, Signal CLK Byte, CPUDebug CLK)
 circuit image = (cpuPC, forceDefined 0x00 $ syncRead ram targetAddr, debug)
   where
     (CPUOut{..}, debug@CPUDebug{..}) = cpu CPUIn{..}
-    cpuIRQ = toS $ replicate 10 True ++ replicate 10 False ++ repeat True
+    cpuIRQ = toS $ replicate 25 False ++ repeat True
     cpuNMI = high
     cpuWait = low
 
@@ -49,7 +49,7 @@ suiteResult image = if targetValue == 0xEA then Pass
                     else Fail $ unwords ["'Interrupt while RTS' failed:", showByte targetValue]
   where
     targetValue = head [ target
-                       | Just (pc, target, (Fetch1, (a, sp))) <- fromS sig
+                       | Just (pc, target, (Fetch1, (a, sp))) <- take 100 $ fromS sig
                        , let debug = [ showAddr pc
                                      , "A ="
                                      , showByte a

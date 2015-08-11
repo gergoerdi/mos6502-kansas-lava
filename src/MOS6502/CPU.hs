@@ -147,22 +147,16 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
     WHEN ready $ do
         WHEN (fallingEdge cpuNMI) $ nmi := high
         WHEN (bitNot cpuIRQ .&&. bitNot (reg fI)) $ irq := high
-    let hardInterrupt = reg nmi .||. (reg irq .&&. bitNot (reg fI))
+    newNMI <- newReg False
+    newIRQ <- newReg False
 
     -- Decoder state
     rOp <- newReg 0x00
-    let op = mux hardInterrupt (var rOp, 0x00)
-        decoded@Decoded{..} = decode op
+    let op = var rOp
+        decoded@Decoded{..} = decode (var newNMI) (var newIRQ) op
         size1 = dAddrMode .==. pureS AddrNone
         size2 = dAddrMode `elemS` [AddrImm, AddrZP, AddrIndirect]
         _size3 = dAddrMode .==. pureS AddrDirect
-
-    -- Interrupt state
-    let isBRK = dOp .==. pureS OpBRK
-        interrupt = hardInterrupt .||. isBRK
-    enteringNMI <- newReg False
-    enteringIRQ <- newReg False
-    let enteringInterrupt = reg enteringNMI .||. reg enteringIRQ .||. isBRK
 
     rNextA <- newReg 0x0000
     rNextW <- newReg Nothing
@@ -330,17 +324,17 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
               s := pureS Fetch1
           Fetch1 -> do
               rOp := cpuMemR
-              caseEx [ IF interrupt $ do
+              caseEx [ match (opInterrupt dOp) $ \int -> do
                             rSP := reg rSP - 2
                             rNextA := pushTarget
 
-                            let pc = mux (bitNot $ reg nmi .||. reg irq) (reg rPC, reg rPC + 2)
+                            let isBRK = int .==. pureS IntBRK
+                                isNMI = int .==. pureS IntNMI
+                            let pc = mux isBRK (reg rPC, reg rPC + 2)
                             rNextW := enabledS $ unsigned (pc `shiftR` 8)
                             rArgBuf := unsigned pc
 
-                            rPC := mux (reg nmi) (pureS irqVector, pureS nmiVector)
-                            enteringNMI := reg nmi
-                            enteringIRQ := reg irq
+                            rPC := mux isNMI (pureS irqVector, pureS nmiVector)
                             s := pureS WaitPushAddr
                             -- s := pureS Halt
                      , match (opPush dOp) $ \arg -> do
@@ -357,10 +351,10 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
                             s := pureS Fetch1
                      ]
 
-              enteringNMI := low
               nmi := low
-              enteringIRQ := low
               irq := low
+              newNMI := reg nmi
+              newIRQ := reg irq .&&. bitNot (reg fI)
 
               rPC := reg rPC + 1
               rNextA := var rPC
@@ -395,12 +389,13 @@ cpu' CPUInit{..} CPUIn{..} = runRTL $ do
               rNextW := enabledS (reg rArgBuf)
               s := pureS WaitWrite
           WaitWrite -> do
-              WHEN enteringInterrupt $ do
-                  rSP := reg rSP - 1
-                  rNextA := pushTarget
-                  -- set B on BRK only
-                  rNextW := enabledS $ mux (reg enteringNMI .||. reg enteringIRQ) (flagsBRK, flagsIRQ)
-                  s := pureS WaitPushInt
+              CASE [ match (opInterrupt dOp) $ \int -> do
+                          rSP := reg rSP - 1
+                          rNextA := pushTarget
+                          -- set B on BRK only
+                          rNextW := enabledS $ mux (int .==. pureS IntBRK) (flagsIRQ, flagsBRK)
+                          s := pureS WaitPushInt
+                   ]
               rNextA := reg rPC
               s := pureS Fetch1
           WaitPushInt -> do
