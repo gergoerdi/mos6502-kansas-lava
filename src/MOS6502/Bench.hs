@@ -57,7 +57,6 @@ testBench fileName = bench . programToROM 0xF000 <$> BS.readFile fileName
 
         (_, cpuIn@CPUIn{..}, cpuOut@CPUOut{..}, cpuDebug@CPUDebug{..}) = benchCircuit romContents
         Decoded{..} = cpuDecoded
-        Addressing{..} = dAddr
 
         wline :: Signal CLK (Pipe Addr Byte)
         wline = packEnabled (isEnabled cpuMemW) (pack (cpuMemA, enabledVal cpuMemW))

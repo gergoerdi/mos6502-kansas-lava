@@ -1,0 +1,20 @@
+resolver: lts-12.9
+
+packages:
+  - '.'
+
+extra-deps:
+  - kansas-lava-0.2.4.5
+  - binary-literal-qq-1.0
+  - data-reify-0.6
+  - dotgen-0.4.2
+  - netlist-0.3.1
+  - netlist-to-vhdl-0.3.3
+  - sized-types-0.3.5.2
+
+flags:
+  gtk:
+    # set to true for OSX
+    have-quartz-gtk: true
+  mos6502-kansas-lava:
+    simulator: true
